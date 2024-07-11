@@ -243,24 +243,28 @@ summary(glm(y~elev+slope+exposure,family=poisson(link="log"),data=rsf.1.df))
 # --- Numerical Quadrature -----------------------------------------------------
 # x is a px1 vector of covariates at prespecified location
 # beta is a px1 vector of coefficients
-exp.rsf <- function(x, beta){
-  return(exp(dot(x,beta)))
+exp.rsf <- function(x, beta, log = FALSE){
+  out <- dot(x,beta)
+  if(log == FALSE){
+    out <- exp(out)
+  }
+  return(out)
 }
 
 # X.grid is an n.grid x p matrix of covariates 
 # obs is an n.obs x 1 vector of indices that map observed loc to corresponding row in X.grid
 # beta is a px1 vector of coefficients
-SPP.joint.lik.numquad <- function(X.grid, obs, beta){
+SPP.joint.log.lik.numquad <- function(X.grid, obs, beta, cell.size){
   n.obs <- length(obs)
   X.grid.obs <- X.grid[obs,]
-  num <- prod(apply(X.grid.obs, 1, exp.rsf, beta = beta)) 
-  denom <- (sum(apply(X.grid, 1, exp.rsf, beta = beta)))^n.obs
-  return(num/denom)
+  num <- sum(apply(X.grid.obs, 1, exp.rsf, beta = beta, log = TRUE)) 
+  denom <- n.obs*log(cell.size) + n.obs*log(sum(apply(X.grid, 1, exp.rsf, beta = beta)))
+  return(num - denom)
 }
 # multiply by cell size
 # take log for stability
 
-mcmc <- function(n.mcmc, mu.beta, sigma.beta, beta.0, X.grid, obs){
+mcmc <- function(n.mcmc, mu.beta, sigma.beta, beta.0, X.grid, obs, cell.size){
   p <- length(beta.0)
   beta.save <- matrix(nrow = n.mcmc, ncol = p)
   beta.save[1,] <- beta.0
@@ -269,11 +273,11 @@ mcmc <- function(n.mcmc, mu.beta, sigma.beta, beta.0, X.grid, obs){
   
   for(k in 2:n.mcmc){
     beta.prop <- as.vector(rmvn(1, mu = beta, sigma = sd.tune*diag(p)))
-    mh <- (SPP.joint.lik.numquad(X.grid, obs, beta.prop)*
-             dmvn(beta.prop, mu.beta, sigma.beta))/
-          (SPP.joint.lik.numquad(X.grid, obs, beta)*
-             dmvn(beta, mu.beta, sigma.beta))
-    if(runif(1) < mh){
+    mh <- (SPP.joint.log.lik.numquad(X.grid, obs, beta.prop, cell.size) + 
+             dmvn(beta.prop, mu.beta, sigma.beta, log = TRUE)) - 
+      (SPP.joint.log.lik.numquad(X.grid, obs, beta, cell.size) + 
+         dmvn(beta, mu.beta, sigma.beta, log = TRUE))
+    if(runif(1) < exp(mh)){
       beta <- beta.prop
     } 
     beta.save[k,] <- beta
@@ -316,10 +320,11 @@ for(i in 1:nrow(X.grid)){
 }
 X.grid <- X.grid[,-4]
 
+# run mcmc
 n.mcmc <- 5000
 cell.res <- res(elevation.rast)
 cell.size <- cell.res[1] * cell.res[2]
-beta.samp <- mcmc(n.mcmc, rep(0, p), 10*diag(p), beta.0, X.grid, obs)
+beta.samp <- mcmc(n.mcmc, rep(0, p), 10*diag(p), beta.0, X.grid, obs, cell.size)
 beta.samp <- beta.samp[-(1:n.mcmc*0.2),] # discard burn-in
 
 # trace plots

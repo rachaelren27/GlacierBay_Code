@@ -258,7 +258,7 @@ SPP.joint.log.lik.numquad <- function(X.grid, obs, beta, cell.size){
   n.obs <- length(obs)
   X.grid.obs <- X.grid[obs,]
   num <- sum(apply(X.grid.obs, 1, exp.rsf, beta = beta, log = TRUE)) 
-  denom <- n.obs*log(cell.size) + n.obs*log(sum(apply(X.grid, 1, exp.rsf, beta = beta)))
+  denom <- n.obs*(log(cell.size) + log(sum(apply(X.grid, 1, exp.rsf, beta = beta))))
   return(num - denom)
 }
 # multiply by cell size
@@ -273,11 +273,11 @@ mcmc <- function(n.mcmc, mu.beta, sigma.beta, beta.0, X.grid, obs, cell.size){
   
   for(k in 2:n.mcmc){
     beta.prop <- as.vector(rmvn(1, mu = beta, sigma = sd.tune*diag(p)))
-    mh <- (SPP.joint.log.lik.numquad(X.grid, obs, beta.prop, cell.size) + 
+    log.mh <- (SPP.joint.log.lik.numquad(X.grid, obs, beta.prop, cell.size) + 
              dmvn(beta.prop, mu.beta, sigma.beta, log = TRUE)) - 
       (SPP.joint.log.lik.numquad(X.grid, obs, beta, cell.size) + 
          dmvn(beta, mu.beta, sigma.beta, log = TRUE))
-    if(runif(1) < exp(mh)){
+    if(runif(1) < exp(log.mh)){
       beta <- beta.prop
     } 
     beta.save[k,] <- beta

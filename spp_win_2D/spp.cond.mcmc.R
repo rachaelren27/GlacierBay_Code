@@ -1,4 +1,4 @@
-spp.cond.mcmc <- function(s.vec,X,X.full,ds,n.mcmc){
+spp.cond.mcmc <- function(s.mat,X,X.full,ds,n.mcmc){
 
 #
 #  1-D SPP while conditioning on n 
@@ -18,7 +18,7 @@ spp.loglik <- function(beta){
 ###  Set up variables
 ###
 
-n=length(s.vec)
+n=nrow(s.mat)
 p=dim(X)[2]
 
 beta.save=matrix(0,p,n.mcmc)

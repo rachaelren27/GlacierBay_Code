@@ -94,9 +94,6 @@ ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
                           col = factor(obs.win))) + 
   geom_point()
 
-# --- Fit Poisson GLM ----------------------------------------------------------
-
-
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
 source("spp.comp.mcmc.R")
@@ -129,3 +126,57 @@ abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
+# --- Compare Marginal Posteriors ----------------------------------------------
+layout(matrix(1:3,1,3))
+hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,1))
+lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=2)
+lines(density(out.cond.2.full$beta.0.save,n=1000),col=3,lwd=2)
+hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+     ylim = c(0,1))
+lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=2)
+lines(density(out.cond.2.full$beta.save[1,],n=1000),col=3,lwd=2)
+hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+     ylim = c(0,1))
+lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=2)
+lines(density(out.cond.2.full$beta.save[2,],n=1000),col=3,lwd=2)
+
+# --- Posterior for N ----------------------------------------------------------
+N.save=rep(0,n.mcmc)
+
+for(k in 1:n.mcmc){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=out.cond.2.full$beta.0.save[k]
+  beta.tmp=out.cond.2.full$beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
+  N.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+
+par(mfrow = c(1,1))
+
+plot(N.save,type="l")
+abline(h=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
+
+hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
+abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
+
+# --- PPD of lambda full area --------------------------------------------------
+idx.sm=seq(1,m,10)
+m.sm=length(idx.sm)
+s.sm=s.full[idx.sm,]
+X.sm=X.full[idx.sm,]
+lam.save=matrix(0,m.sm,n.mcmc)
+for(k in 1:n.mcmc){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=out.cond.2.full$beta.0.save[k]
+  beta.tmp=out.cond.2.full$beta.save[,k]
+  lam.save[,k]=exp(beta.0.tmp+X.sm%*%beta.tmp)
+};cat("\n")
+lam.mn=apply(lam.save,1,mean)
+lam.u=apply(lam.save,1,quantile,.975)
+lam.l=apply(lam.save,1,quantile,.025)
+
+# plot(s.sm,exp(beta.0+X.sm%*%beta),xlab="location",ylab=bquote(lambda),col=3,type="l")
+# polygon(c(s.sm,rev(s.sm)),c(lam.u,rev(lam.l)),col=rgb(0,0,0,.2),border=NA)
+# lines(s.sm,lam.mn,col=1,lwd=2)
+# 

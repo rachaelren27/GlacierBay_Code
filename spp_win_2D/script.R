@@ -83,7 +83,7 @@ full.win.idx <- (1:m)[full.win]
 n=length(obs.win.idx)
 
 s.win=s.obs[obs.win.idx,]
-X.win=X.tot[obs.win.idx,]
+X.win=X.obs[obs.win.idx,]
 
 X.win.full=X.full[full.win.idx,]
 X.nowin.full=X.full[-full.win.idx,]
@@ -93,6 +93,9 @@ obs.df <- as.data.frame(s.obs)
 ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
                           col = factor(obs.win))) + 
   geom_point()
+
+# --- Fit Poisson GLM ----------------------------------------------------------
+
 
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
@@ -115,3 +118,14 @@ plot(out.cond.full$beta.0.save,type="l")
 abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
+source("spp.stg2.mcmc.R")
+out.cond.2.full=spp.stg2.mcmc(out.cond.full)
+
+layout(matrix(1:2,2,1))
+plot(out.cond.2.full$beta.0.save,type="l")
+abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+

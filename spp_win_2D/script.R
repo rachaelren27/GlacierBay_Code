@@ -161,7 +161,7 @@ hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- PPD of lambda full area --------------------------------------------------
-idx.sm=seq(1,m,10)
+idx.sm=seq(1,m,2)
 m.sm=length(idx.sm)
 s.sm=s.full[idx.sm,]
 X.sm=X.full[idx.sm,]
@@ -179,4 +179,7 @@ lam.l=apply(lam.save,1,quantile,.025)
 # plot(s.sm,exp(beta.0+X.sm%*%beta),xlab="location",ylab=bquote(lambda),col=3,type="l")
 # polygon(c(s.sm,rev(s.sm)),c(lam.u,rev(lam.l)),col=rgb(0,0,0,.2),border=NA)
 # lines(s.sm,lam.mn,col=1,lwd=2)
-# 
+
+lam.ppd.df <- as.data.frame(cbind(s.sm, lam.mn))
+ggplot(data = lam.ppd.df, aes(x = x, y = y, col = lam.mn)) + 
+  geom_point(size = 0.5)

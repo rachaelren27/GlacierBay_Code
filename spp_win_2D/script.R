@@ -5,16 +5,46 @@ library(spatstat)
 # --- Simulate 2D data ---------------------------------------------------------
 set.seed(1234)
 
-# create domain
-x.domain <- c(0,1)
-y.domain <- c(0,1)
+# set domain
+x.domain <- c(0,0.9)
+y.domain <- c(0,0.9)
 
-n.win <- 2
+# define the coordinates for window squares
+win.length <- 0.1
+gap <- 0.1
+domain.length <- x.domain[2] - x.domain[1]
+coords <- expand.grid(x = seq(gap, domain.length - win.length - gap, by = win.length + gap), 
+                      y = seq(gap, domain.length - win.length - gap, by = win.length + gap))
+
+# create the individual squares
+squares <- lapply(1:nrow(coords), function(i) {
+  x0 <- coords$x[i]
+  y0 <- coords$y[i]
+  owin(xrange = c(x0, x0 + win.length), yrange = c(y0, y0 + win.length))
+})
+
+# combine the squares into a single window
+combined.window <- do.call(union.owin, squares)
+
+# calculate areas
 tot.area <- (x.domain[2] - x.domain[1])*(y.domain[2] - y.domain[1])
-tot.win.area <- tot.area/2
+tot.win.area <- area.owin(combined.window)
+n.win <- 16
 win.area <- tot.win.area/n.win
 tot.nonwin.area <- tot.area - tot.win.area
-nonwin.area <- tot.nonwin.area/n.win
+
+# plot the window
+domain <- owin(xrange = c(0,domain.length), yrange = c(0,domain.length))
+
+plot(domain)
+plot(combined.window, add = TRUE)
+
+# n.win <- 2
+# tot.area <- (x.domain[2] - x.domain[1])*(y.domain[2] - y.domain[1])
+# tot.win.area <- tot.area/2
+# win.area <- tot.win.area/n.win
+# tot.nonwin.area <- tot.area - tot.win.area
+# nonwin.area <- tot.nonwin.area/n.win
 
 # get quadrature grid
 x.m <- 100
@@ -25,6 +55,11 @@ x.full <- seq(x.domain[1], x.domain[2], length.out = x.m)
 y.full <- x.full
 
 s.full <- expand.grid(x = x.full, y = y.full)
+
+plot(domain)
+plot(combined.window, add = TRUE)
+points(s.full, pch = 19, cex = 0.05)
+
 ds <- (x.full[2] - x.full[1])^2
 
 # set X matrix
@@ -75,14 +110,12 @@ ggplot(data = superpop.df, aes(x = x.superpop, y = y.superpop, col = lam.superpo
   geom_point(size = 0.5)
 
 # --- Get windowed data --------------------------------------------------------
-obs.win <- ((s.obs[,1] < 0.5) & (s.obs[,2] > 0.5)) | 
-  ((s.obs[,1] > 0.5) & (s.obs[,2] < 0.5))
+obs.win <- inside.owin(s.obs[,1], s.obs[,2], combined.window)
 obs.win.idx <- (1:N)[obs.win]
-
-full.win <- ((s.full[,1] < 0.5) & (s.full[,2] > 0.5)) | 
-  ((s.full[,1] > 0.5) & (s.full[,2] < 0.5))
-full.win.idx <- (1:m)[full.win]
 n=length(obs.win.idx)
+
+full.win <- inside.owin(s.full[,1], s.full[,2], combined.window)
+full.win.idx <- (1:m)[full.win]
 
 s.win=s.obs[obs.win.idx,]
 X.win=X.obs[obs.win.idx,]
@@ -96,10 +129,16 @@ ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
                           col = factor(obs.win))) + 
   geom_point()
 
+plot(domain)
+plot(combined.window, add = TRUE)
+points(s.obs[,1], s.obs[,2], col = factor(obs.win), pch = 19, cex = 0.5)
+
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
 source("spp.comp.mcmc.R")
+tic()
 out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc)
+toc() # 6.568 sec
 
 layout(matrix(1:2,2,1))
 plot(out.comp.full$beta.0.save,type="l")

@@ -1,5 +1,6 @@
 library(tidyverse)
 library(raster)
+library(spatstat)
 
 # --- Simulate 2D data ---------------------------------------------------------
 set.seed(1234)
@@ -49,9 +50,10 @@ ggplot(data = full.df, aes(x = x, y = y, col = y)) +
 ggplot(data = full.df, aes(x = x, y = y, col = lam.full)) + 
   geom_point(size = 0.5)
 
-# # create full raster
-# full.df <- full.df %>% rename(z = lam.full)
-# full.raster <- rasterFromXYZ(full.df)
+# create full raster
+full.df <- full.df %>% rename(z = lam.full)
+full.raster <- rasterFromXYZ(full.df)
+plot(full.raster)
 
 # simulate observed points
 M=rpois(1, lam.max) 
@@ -116,6 +118,9 @@ abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
+# alternative: could use Bayesian Poisson/logit GLM
+# saves time or more stable?
+
 # --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)
@@ -161,16 +166,16 @@ hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- PPD of lambda full area --------------------------------------------------
-idx.sm=seq(1,m,2)
-m.sm=length(idx.sm)
-s.sm=s.full[idx.sm,]
-X.sm=X.full[idx.sm,]
-lam.save=matrix(0,m.sm,n.mcmc)
+# idx.sm=seq(1,m,2)
+# m.sm=length(idx.sm)
+# s.sm=s.full[idx.sm,]
+# X.sm=X.full[idx.sm,]
+lam.save=matrix(0,m,n.mcmc)
 for(k in 1:n.mcmc){
   if(k%%10000==0){cat(k," ")}
   beta.0.tmp=out.cond.2.full$beta.0.save[k]
   beta.tmp=out.cond.2.full$beta.save[,k]
-  lam.save[,k]=exp(beta.0.tmp+X.sm%*%beta.tmp)
+  lam.save[,k]=exp(beta.0.tmp+X.full%*%beta.tmp)
 };cat("\n")
 lam.mn=apply(lam.save,1,mean)
 lam.u=apply(lam.save,1,quantile,.975)
@@ -180,6 +185,8 @@ lam.l=apply(lam.save,1,quantile,.025)
 # polygon(c(s.sm,rev(s.sm)),c(lam.u,rev(lam.l)),col=rgb(0,0,0,.2),border=NA)
 # lines(s.sm,lam.mn,col=1,lwd=2)
 
-lam.ppd.df <- as.data.frame(cbind(s.sm, lam.mn))
+lam.ppd.df <- as.data.frame(cbind(s.full, lam.mn))
 ggplot(data = lam.ppd.df, aes(x = x, y = y, col = lam.mn)) + 
   geom_point(size = 0.5)
+
+# sample to data level

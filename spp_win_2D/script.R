@@ -16,14 +16,14 @@ domain.length <- x.domain[2] - x.domain[1]
 coords <- expand.grid(x = seq(gap, domain.length - win.length - gap, by = win.length + gap), 
                       y = seq(gap, domain.length - win.length - gap, by = win.length + gap))
 
-# create the individual squares
+# create individual squares
 squares <- lapply(1:nrow(coords), function(i) {
   x0 <- coords$x[i]
   y0 <- coords$y[i]
   owin(xrange = c(x0, x0 + win.length), yrange = c(y0, y0 + win.length))
 })
 
-# combine the squares into a single window
+# combine squares into single window
 combined.window <- do.call(union.owin, squares)
 
 # calculate areas
@@ -102,7 +102,7 @@ obs.idx=rbinom(M,1,lam.superpop/lam.max)==1
 s.obs=s.superpop[obs.idx,] # total observed points 
 X.obs=X.superpop[obs.idx,] 
 lam.obs <- lam.superpop[obs.idx]
-N=nrow(s.obs)
+N=nrow(s.obs) # 218
 
 # plot superpop lambda
 superpop.df <- as.data.frame(cbind(x.superpop, y.superpop, lam.superpop))
@@ -112,7 +112,7 @@ ggplot(data = superpop.df, aes(x = x.superpop, y = y.superpop, col = lam.superpo
 # --- Get windowed data --------------------------------------------------------
 obs.win <- inside.owin(s.obs[,1], s.obs[,2], combined.window)
 obs.win.idx <- (1:N)[obs.win]
-n=length(obs.win.idx)
+n=length(obs.win.idx) # 44
 
 full.win <- inside.owin(s.full[,1], s.full[,2], combined.window)
 full.win.idx <- (1:m)[full.win]

@@ -8,6 +8,7 @@ library(raster)
 library(hilbertSimilarity)
 library(geosphere)
 library(tictoc)
+library(vioplot)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -132,3 +133,20 @@ plot(out.comp.full$beta.0.save,type="l")
 # abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.comp.full$beta.save),lty=1,type="l", col = c("black", "red"))
 # abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# discard burn-in
+burn.in <- 0.1*n.mcmc
+beta.save <- out.comp.full$beta.save[,-(1:burn.in)]
+beta.0.save <- out.comp.full$beta.0.save[-(1:burn.in)]
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+# posterior summary
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))

@@ -128,6 +128,7 @@ tic()
 out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc)
 toc() # 543.252 sec elapsed (~9 min)
 
+# trace plots
 layout(matrix(1:2,2,1))
 plot(out.comp.full$beta.0.save,type="l")
 # abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
@@ -146,7 +147,79 @@ vioplot(data.frame(beta.save.full),
         ylim = c(-10,5))
 abline(h = 0, lty = 2)
 
-# posterior summary
 apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Fit SPP w/ cond. likelihood ----------------------------------------------
+source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
+tic()
+out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
+toc() # 282.763 sec (~4.7 min)
+
+# discard burn-in
+burn.in <- 0.1*n.mcmc
+beta.save <- out.cond.full$beta.save[,-(1:burn.in)]
+beta.0.save <- out.cond.full$beta.0.save[-(1:burn.in)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(out.cond.full$beta.0.save,type="l")
+# abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(out.cond.full$beta.save),lty=1,type="l")
+# abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
+source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
+tic()
+out.cond.2.full=spp.stg2.mcmc(out.cond.full)
+toc() # 138.445 sec (~2.3 min)
+
+# discard burn-in
+burn.in <- 0.1*n.mcmc
+beta.save <- out.cond.2.full$beta.save[,-(1:burn.in)]
+beta.0.save <- out.cond.2.full$beta.0.save[-(1:burn.in)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(out.cond.2.full$beta.0.save,type="l")
+# abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
+# abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Compare Marginal Posteriors ----------------------------------------------
+# layout(matrix(1:3,1,3))
+hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,1))
+lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=1)
+lines(density(out.cond.2.full$beta.0.save,n=1000,adj=2),col=3,lwd=1)
+hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+     ylim = c(0,5))
+lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=1)
+lines(density(out.cond.2.full$beta.save[1,],n=1000,adj=2),col=3,lwd=1)
+hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+     ylim = c(0,1.5))
+lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
+lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)

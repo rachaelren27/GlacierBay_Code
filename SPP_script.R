@@ -131,14 +131,12 @@ toc() # 543.252 sec elapsed (~9 min)
 # trace plots
 layout(matrix(1:2,2,1))
 plot(out.comp.full$beta.0.save,type="l")
-# abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.comp.full$beta.save),lty=1,type="l", col = c("black", "red"))
-# abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # discard burn-in
-burn.in <- 0.1*n.mcmc
-beta.save <- out.comp.full$beta.save[,-(1:burn.in)]
-beta.0.save <- out.comp.full$beta.0.save[-(1:burn.in)]
+n.burn <- 0.1*n.mcmc
+beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
+beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -158,16 +156,13 @@ out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
 toc() # 282.763 sec (~4.7 min)
 
 # discard burn-in
-burn.in <- 0.1*n.mcmc
-beta.save <- out.cond.full$beta.save[,-(1:burn.in)]
-beta.0.save <- out.cond.full$beta.0.save[-(1:burn.in)]
+beta.save <- out.cond.full$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
 plot(out.cond.full$beta.0.save,type="l")
-# abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
-# abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -187,16 +182,13 @@ out.cond.2.full=spp.stg2.mcmc(out.cond.full)
 toc() # 138.445 sec (~2.3 min)
 
 # discard burn-in
-burn.in <- 0.1*n.mcmc
-beta.save <- out.cond.2.full$beta.save[,-(1:burn.in)]
-beta.0.save <- out.cond.2.full$beta.0.save[-(1:burn.in)]
+beta.save <- out.cond.2.full$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.2.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
 plot(out.cond.2.full$beta.0.save,type="l")
-# abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
-# abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -223,3 +215,33 @@ hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]
      ylim = c(0,1.5))
 lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
 lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)
+
+# --- Posterior for N ----------------------------------------------------------
+N.save=rep(0,n.mcmc)
+
+X.nowin.full <- X.full[-win.idx,]
+n <- nrow(seal.mat)
+
+tic()
+for(k in 1:n.mcmc){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=out.cond.2.full$beta.0.save[k]
+  beta.tmp=out.cond.2.full$beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
+  N.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+toc()
+
+par(mfrow = c(1,1))
+
+# discard burn-in
+N.save <- N.save[-(1:n.burn)]
+
+plot(N.save,type="l")
+hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
+
+# posterior summary
+mean(N.save)
+sd(N.save)
+quantile(N.save, c(0.025, 0.975))
+

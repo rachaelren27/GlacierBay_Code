@@ -8,10 +8,10 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,area,n.mcmc){
 ###  Subroutine 
 ###
 
-spp.loglik <- function(beta.0,beta){
+spp.loglik <- function(beta.0,beta){ # pass in X.full, ds
   llam=beta.0+X%*%beta
   lam.int=sum(exp(log(ds)+beta.0+X.full%*%beta))
-  sum(llam)-lam.int-lfactorial(n)
+  sum(llam)-lam.int-lfactorial(n) # check if we can delete lfactorial(n)
 }
 
 ###

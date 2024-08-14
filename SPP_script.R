@@ -9,6 +9,8 @@ library(hilbertSimilarity)
 library(geosphere)
 library(tictoc)
 library(vioplot)
+library(spatstat)
+library(rstanarm)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -30,18 +32,29 @@ seal.locs <- st_transform(seal.locs.20070813$geometry,
 
 footprint <- st_transform(footprint.20070813$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
+footprint <- st_intersection(footprint, survey.poly)
 
 # prepare windows
 survey.poly.mat <- survey.poly[[1]][[1]]
 survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
                                      y=rev(survey.poly.mat[,2])))
 
+lengths <- c()
+for(i in 1:length(footprint)){
+  lengths[i] <- length(footprint[[i]][[1]][,1])
+}
+
+
 footprints <- lapply(1:length(footprint), function(i) {
   footprint.mat <- footprint[[i]][[1]]
+  if(class(footprint.mat)[1] == "list"){
+    footprint.mat <- footprint.mat[[1]]
+  }
   owin(poly = data.frame(x=rev(footprint.mat[,1]),
                          y=rev(footprint.mat[,2])))
 })
 footprint.win <- do.call(union.owin, footprints)
+
 
 # plot
 ggplot() + 
@@ -149,7 +162,7 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# --- Fit SPP w/ cond. likelihood ----------------------------------------------
+# --- Fit SPP w/ cond. likelihood (num quad) -----------------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()
 out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
@@ -174,6 +187,47 @@ abline(h = 0, lty = 2)
 apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Fit SPPS using cond. likelihood (Bernoulli GLM) --------------------------
+
+# obtain background sample
+n.bg <- 10000
+bg.pts <- rpoint(n.bg, win = footprint.win)
+
+ggplot() + 
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+  geom_sf(data = seal.locs, size = 0.3, col = "red")
+
+# prepare covariates for background sample 
+bg.mat <- cbind(bg.pts$x, bg.pts$y)
+
+bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
+row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
+bath.full <- cbind(values(bath.rast.survey), row.counts)
+bath <- na.omit(bath.full)
+X.full <- cbind(bath, glac.dist)
+bg.idx <- c()
+for(i in 1:nrow(X.full)){
+  if(X.full[i,2] != 0){
+    bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
+  }
+}
+# now 9802 background points (some correspond to NA in bath raster)
+X.full <- scale(X.full[,-2])
+
+X.obs <- X.full[c(seal.idx, bg.idx),] 
+
+y.binary <- rep(0, n + length(bg.idx))
+y.binary[1:n] <- 1
+
+bern.rsf.df <- data.frame(y = y.binary, bath = X.obs[,1], glac.dist = X.obs[,2])
+tic()
+out.bern.cond <- stan_glm(y ~ bath + glac.dist, family=binomial(link="logit"), data=bern.rsf.df,
+                 iter = 100000, chains = 1)
+toc()
+# 376.625 sec (~6.3 min)
 
 # --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))

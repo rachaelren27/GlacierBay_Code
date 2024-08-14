@@ -201,7 +201,7 @@ par(mfrow = c(1,1))
 plot(N.save,type="l")
 abline(h=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
-hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
+hist(N.save[-(1:1000)],breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- PPD of lambda full area --------------------------------------------------

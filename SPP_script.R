@@ -32,18 +32,14 @@ seal.locs <- st_transform(seal.locs.20070813$geometry,
 
 footprint <- st_transform(footprint.20070813$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
+
+# crop footprint
 footprint <- st_intersection(footprint, survey.poly)
 
 # prepare windows
 survey.poly.mat <- survey.poly[[1]][[1]]
 survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
                                      y=rev(survey.poly.mat[,2])))
-
-lengths <- c()
-for(i in 1:length(footprint)){
-  lengths[i] <- length(footprint[[i]][[1]][,1])
-}
-
 
 footprints <- lapply(1:length(footprint), function(i) {
   footprint.mat <- footprint[[i]][[1]]
@@ -54,7 +50,6 @@ footprints <- lapply(1:length(footprint), function(i) {
                          y=rev(footprint.mat[,2])))
 })
 footprint.win <- do.call(union.owin, footprints)
-
 
 # plot
 ggplot() + 
@@ -108,12 +103,13 @@ tot.area <- area.owin(survey.win)
 tot.win.area <- area.owin(footprint.win)
 tot.nonwin.area <- tot.area - tot.win.area
 n.win <- length(footprint)
-win.area <- tot.win.area/n.win # approx. bc windows not equally sized
+ex.win <- owin(poly = data.frame(x = rev(footprint[[1]][[1]][,1]),
+                                 y = rev(footprint[[1]][[1]][,2])))
+win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
 ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
   
 # --- Set X matrices -----------------------------------------------------------
-bath <- na.omit(values(bath.rast.survey))
 glac.dist <- full.glac.dist[,1]
 
 seal.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
@@ -133,23 +129,24 @@ win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
 X.win.full <- X.full[win.idx,]
 
 X.obs <- X.full[seal.idx,]
+n <- length(seal.idx)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
-n.mcmc=100000
+n.mcmc=10000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
 out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc)
 toc() # 543.252 sec elapsed (~9 min)
 
-# trace plots
-layout(matrix(1:2,2,1))
-plot(out.comp.full$beta.0.save,type="l")
-matplot(t(out.comp.full$beta.save),lty=1,type="l", col = c("black", "red"))
-
 # discard burn-in
 n.burn <- 0.1*n.mcmc
 beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
 beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+matplot(t(beta.save),lty=1,type="l", col = c("black", "red"))
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))

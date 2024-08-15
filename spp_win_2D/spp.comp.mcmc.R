@@ -8,7 +8,7 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,area,n.mcmc){
 ###  Subroutine 
 ###
 
-spp.loglik <- function(beta.0,beta){ # pass in X.full, ds
+spp.loglik <- function(beta.0,beta,X,X.full,ds,n){ # pass in X.full, ds
   llam=beta.0+X%*%beta
   lam.int=sum(exp(log(ds)+beta.0+X.full%*%beta))
   sum(llam)-lam.int-lfactorial(n) # check if we can delete lfactorial(n)
@@ -51,8 +51,8 @@ for(k in 1:n.mcmc){
   ###
 
   beta.star=rnorm(p,beta,beta.tune)
-  mh.1=spp.loglik(beta.0,beta.star)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
-  mh.2=spp.loglik(beta.0,beta)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+  mh.1=spp.loglik(beta.0,beta.star,X,X.full,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
+  mh.2=spp.loglik(beta.0,beta,X,X.full,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
   if(exp(mh.1-mh.2)>runif(1)){
     beta=beta.star 
   }
@@ -62,8 +62,8 @@ for(k in 1:n.mcmc){
   ###
 
   beta.0.star=rnorm(1,beta.0,beta.0.tune)
-  mh.1=spp.loglik(beta.0.star,beta)+dnorm(beta.0.star,mu.00,sig.00,log=TRUE)
-  mh.2=spp.loglik(beta.0,beta)+dnorm(beta.0,mu.00,sig.00,log=TRUE)
+  mh.1=spp.loglik(beta.0.star,beta,X,X.full,ds,n)+dnorm(beta.0.star,mu.00,sig.00,log=TRUE)
+  mh.2=spp.loglik(beta.0,beta,X,X.full,ds,n)+dnorm(beta.0,mu.00,sig.00,log=TRUE)
   if(exp(mh.1-mh.2)>runif(1)){
     beta.0=beta.0.star 
   }

@@ -140,11 +140,24 @@ tic()
 out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc)
 toc() # 6.568 sec
 
+# discard burn-in
+n.burn <- 0.1*n.mcmc
+beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
+beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
+
+# trace plot
 layout(matrix(1:2,2,1))
-plot(out.comp.full$beta.0.save,type="l")
+plot(beta.0.save,type="l")
 abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
-matplot(t(out.comp.full$beta.save),lty=1,type="l")
+matplot(t(beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
 
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
@@ -157,10 +170,26 @@ abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
-# alternative: could use Bayesian Poisson/logit GLM
-# saves time or more stable?
+# --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
+# sample background points
+n.bg <- 10000
+bg.pts <- rpoint(n.bg, win = combined.window)
 
-# --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
+plot(domain)
+plot(combined.window, add = TRUE)
+points(bg.pts$x, bg.pts$y)
+
+# prepare X matrix
+X.bg <- cbind(bg.pts$x, bg.pts$y)
+X.bern <- rbind(X.win, X.bg)
+y.bern <- rep(0, n + n.bg)
+y.bern[1:n] <- 1
+
+bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
+out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
+                          iter = 100000, chains = 1)
+
+# --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)
 

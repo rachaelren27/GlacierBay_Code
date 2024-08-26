@@ -8,7 +8,7 @@ spp.cond.mcmc <- function(s.mat,X,X.full,ds,n.mcmc){
 ###  Subroutine 
 ###
 
-spp.loglik <- function(beta){
+spp.loglik <- function(beta,X,X.full,ds,n.mcmc){
   llam=X%*%beta
   lam.int=sum(exp(log(ds)+X.full%*%beta))
   #list(loglik = sum(llam)-n*log(lam.int), lam.int = lam.int)
@@ -54,8 +54,8 @@ for(k in 1:n.mcmc){
   # spp.loglik.beta <- spp.loglik(beta)
 
   beta.star=rnorm(p,beta,beta.tune)
-  mh.1=spp.loglik(beta.star) + sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
-  mh.2=spp.loglik(beta) + sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+  mh.1=spp.loglik(beta.star,X,X.full,ds,n.mcmc) + sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
+  mh.2=spp.loglik(beta,X,X.full,ds,n.mcmc) + sum(dnorm(beta,mu.0,sig.0,log=TRUE))
   if(exp(mh.1-mh.2)>runif(1)){
     beta=beta.star 
     # spp.loglik.beta <- spp.loglik.beta.star

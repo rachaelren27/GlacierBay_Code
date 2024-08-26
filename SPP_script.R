@@ -11,6 +11,7 @@ library(tictoc)
 library(vioplot)
 library(spatstat)
 library(rstanarm)
+library(reshape2)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -159,7 +160,7 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# --- Fit SPP w/ cond. likelihood (num quad) -----------------------------------
+# --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()
 out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
@@ -185,34 +186,35 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# --- Fit SPPS using cond. likelihood (Bernoulli GLM) --------------------------
+# --- Fit SPPS using cond. likelihood (Bernoulli GLM stage 1) ------------------
 
 # obtain background sample
-n.bg <- 10000
-bg.pts <- rpoint(n.bg, win = footprint.win)
-
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) + 
-  geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
-  geom_sf(data = seal.locs, size = 0.3, col = "red")
-
-# prepare covariates for background sample 
-bg.mat <- cbind(bg.pts$x, bg.pts$y)
-
-bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
-row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
-bg.idx <- c()
-for(i in 1:nrow(X.full)){
-  if(X.full[i,2] != 0){
-    bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
+  n.bg <- 50000
+  bg.pts <- rpoint(n.bg, win = footprint.win)
+  
+  ggplot() + 
+    geom_sf(data = survey.poly) + 
+    geom_sf(data = footprint) + 
+    geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+    geom_sf(data = seal.locs, size = 0.3, col = "red")
+  
+  # prepare covariates for background sample 
+  bg.mat <- cbind(bg.pts$x, bg.pts$y)
+  
+  bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
+  row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
+  bath.full <- cbind(values(bath.rast.survey), row.counts)
+  bath <- na.omit(bath.full)
+  X.full <- cbind(bath, glac.dist)
+  bg.idx <- c()
+  for(i in 1:nrow(X.full)){
+    if(X.full[i,2] != 0){
+      bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
+    }
   }
-}
-# now 9802 background points (some correspond to NA in bath raster)
-X.full <- scale(X.full[,-2])
+  # 10000 -> 9802 background points (some correspond to NA in bath raster)
+  # 50000 -> 49008 bg pts
+  X.full <- scale(X.full[,-2]) 
 
 X.obs <- X.full[c(seal.idx, bg.idx),] 
 
@@ -224,9 +226,27 @@ tic()
 out.bern.cond <- stan_glm(y ~ bath + glac.dist, family=binomial(link="logit"), data=bern.rsf.df,
                  iter = 100000, chains = 1)
 toc()
-# 376.625 sec (~6.3 min)
+# 9802 bg pts: 376.625 sec (~6.3 min)
+# 49008 bg pts: 2079 sec (~34.7 min)
 
-# --- Fit SPP uisng cond. output with 2nd stage MCMC ---------------------------
+# plot comparison (Bernoulli GLM vs num quad)
+beta.save.full.cond1 <- cbind(beta.save.full, rep(1, nrow(beta.save.full)))
+beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))
+beta.save.full.stage1 <- as.data.frame(rbind(beta.save.full.cond1, beta.save.full.stan1)[,-1])
+
+beta.save.stage1.long <- melt(beta.save.full.stage1, id.vars = "V3")
+
+pdf("stage1_compare.pdf")
+ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(x = "Coefficients",
+       y = "Values",
+       fill = "Model") + 
+  scale_x_discrete(labels = c("bathymetry", "glacier distance")) + 
+  scale_fill_manual(values = c("#00BFC4", "#F8766D"), labels = c("stan_glm", "num quad"))
+dev.off()
+
+# --- Fit SPP using cond. output (num quad stage 2) ----------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
 tic()
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)

@@ -12,6 +12,8 @@ library(vioplot)
 library(spatstat)
 library(rstanarm)
 library(reshape2)
+library(BayesLogit)
+library(mvnfast)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -245,6 +247,52 @@ ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))
   scale_x_discrete(labels = c("bathymetry", "glacier distance")) + 
   scale_fill_manual(values = c("#00BFC4", "#F8766D"), labels = c("stan_glm", "num quad"))
 dev.off()
+
+# --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
+# obtain background sample
+n.bg <- 10000
+bg.pts <- rpoint(n.bg, win = footprint.win)
+
+ggplot() + 
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+  geom_sf(data = seal.locs, size = 0.3, col = "red")
+
+# prepare covariates for background sample 
+bg.mat <- cbind(bg.pts$x, bg.pts$y)
+
+bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
+row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
+bath.full <- cbind(values(bath.rast.survey), row.counts)
+bath <- na.omit(bath.full)
+X.full <- cbind(bath, glac.dist)
+bg.idx <- c()
+for(i in 1:nrow(X.full)){
+  if(X.full[i,2] != 0){
+    bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
+  }
+}
+# 10000 -> 9802 background points (some correspond to NA in bath raster)
+# 50000 -> 49008 bg pts
+X.full <- scale(X.full[,-2]) 
+
+X.obs <- X.full[c(seal.idx, bg.idx),] 
+
+y.binary <- rep(0, n + length(bg.idx))
+y.binary[1:n] <- 1
+
+source(here("GlacierBay_Code", "Polya_Gamma.R"))
+p <- ncol(X.obs)
+mu.beta <- rep(0, p)
+sigma.beta <- diag(100, p)
+tic()
+beta.save.pg <- polya_gamma(y.binary, X.obs, mu.beta, sigma.beta, 10000)
+toc() # 2.4 hours
+
+# posterior summary
+plot(beta.save.pg$beta[1,], type = "l")
+plot(beta.save.pg$beta[2,], type = "l")
 
 # --- Fit SPP using cond. output (num quad stage 2) ----------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))

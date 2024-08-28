@@ -1,3 +1,5 @@
+setwd("/Users/rlr3795/Desktop/GlacierBay_Project")
+
 library(sf)
 library(here)
 library(tidyverse)

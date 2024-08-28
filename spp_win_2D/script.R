@@ -172,7 +172,7 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 10000
+n.bg <- 5000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 plot(domain)
@@ -188,6 +188,19 @@ y.bern[1:n] <- 1
 bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
 out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
                           iter = 100000, chains = 1)
+
+# --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
+source(here("GlacierBay_Code", "Polya_Gamma.R"))
+X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
+p <- ncol(X.pg)
+mu.beta <- rep(0, p)
+sigma.beta <- diag(2.25, p)
+tic()
+beta.save.pg <- polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 5000)
+toc()
+
+plot(beta.save.pg$beta[2,], type = "l")
+plot(beta.save.pg$beta[3,], type = "l")
 
 # --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")

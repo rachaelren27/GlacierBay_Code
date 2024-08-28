@@ -285,7 +285,7 @@ y.binary[1:n] <- 1
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.obs)
 mu.beta <- rep(0, p)
-sigma.beta <- diag(100, p)
+sigma.beta <- diag(2.25, p)
 tic()
 beta.save.pg <- polya_gamma(y.binary, X.obs, mu.beta, sigma.beta, 10000)
 toc() # 2.4 hours

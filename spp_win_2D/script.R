@@ -202,6 +202,9 @@ toc()
 plot(beta.save.pg$beta[2,], type = "l")
 plot(beta.save.pg$beta[3,], type = "l")
 
+matplot(t(beta.save.pg$beta[-1,]),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
 # --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)

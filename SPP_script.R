@@ -231,23 +231,6 @@ toc()
 # 9802 bg pts: 376.625 sec (~6.3 min)
 # 49008 bg pts: 2079 sec (~34.7 min)
 
-# plot comparison (Bernoulli GLM vs num quad)
-beta.save.full.cond1 <- cbind(beta.save.full, rep(1, nrow(beta.save.full)))
-beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))
-beta.save.full.stage1 <- as.data.frame(rbind(beta.save.full.cond1, beta.save.full.stan1)[,-1])
-
-beta.save.stage1.long <- melt(beta.save.full.stage1, id.vars = "V3")
-
-pdf("stage1_compare.pdf")
-ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))) +
-  geom_boxplot(position = position_dodge(0.8)) +
-  labs(x = "Coefficients",
-       y = "Values",
-       fill = "Model") + 
-  scale_x_discrete(labels = c("bathymetry", "glacier distance")) + 
-  scale_fill_manual(values = c("#00BFC4", "#F8766D"), labels = c("stan_glm", "num quad"))
-dev.off()
-
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 # obtain background sample
 n.bg <- 10000
@@ -277,22 +260,44 @@ for(i in 1:nrow(X.full)){
 # 50000 -> 49008 bg pts
 X.full <- scale(X.full[,-2]) 
 
-X.obs <- X.full[c(seal.idx, bg.idx),] 
+X.obs <- X.full[c(seal.idx, bg.idx),]
+X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
 
 y.binary <- rep(0, n + length(bg.idx))
 y.binary[1:n] <- 1
 
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
-p <- ncol(X.obs)
+p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
 tic()
-beta.save.pg <- polya_gamma(y.binary, X.obs, mu.beta, sigma.beta, 10000)
-toc() # 2.4 hours
+beta.save.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, 10000)
+toc() # 2.5 hours
 
 # posterior summary
-plot(beta.save.pg$beta[1,], type = "l")
-plot(beta.save.pg$beta[2,], type = "l")
+beta.save <- beta.save.pg$beta[,-(1:1000)]
+
+plot(beta.save[2,], type = "l")
+plot(beta.save[3,], type = "l")
+
+# --- 1st Stage MCMC Plot Comparison -------------------------------------------
+beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
+beta.save.full.cond1 <- cbind(beta.save.full, rep(1, nrow(beta.save.full)))[,-1]
+beta.save.full.pg <- cbind(t(beta.save), rep(2, nrow(beta.save)))[,-1]
+beta.save.full.stage1 <- as.data.frame(rbind( beta.save.full.stan1, beta.save.full.cond1, beta.save.full.pg))
+
+beta.save.stage1.long <- melt(beta.save.full.stage1, id.vars = "V3")
+
+pdf("stage1_compare.pdf")
+ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(x = "Coefficients",
+       y = "Values",
+       fill = "Model") + 
+  scale_x_discrete(labels = c("bathymetry", "glacier distance")) + 
+  scale_fill_manual(values = c("#00BFC4", "#F8766D", "#7CAE00"),
+                    labels = c("stan_glm", "num quad", "polya-gamma"))
+dev.off()
 
 # --- Fit SPP using cond. output (num quad stage 2) ----------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))

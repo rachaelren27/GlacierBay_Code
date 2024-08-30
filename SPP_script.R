@@ -14,6 +14,7 @@ library(rstanarm)
 library(reshape2)
 library(BayesLogit)
 library(mvnfast)
+library(pgdraw)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -143,8 +144,8 @@ toc() # 543.252 sec elapsed (~9 min)
 
 # discard burn-in
 n.burn <- 0.1*n.mcmc
-beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
-beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
+beta.save.full.lik <- out.comp.full$beta.save[,-(1:n.burn)]
+beta.0.save.full.llik <- out.comp.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
@@ -189,7 +190,6 @@ apply(beta.save.full,2,sd)
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Fit SPPS using cond. likelihood (Bernoulli GLM stage 1) ------------------
-
 # obtain background sample
   n.bg <- 50000
   bg.pts <- rpoint(n.bg, win = footprint.win)
@@ -232,53 +232,25 @@ toc()
 # 49008 bg pts: 2079 sec (~34.7 min)
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
-# obtain background sample
-n.bg <- 10000
-bg.pts <- rpoint(n.bg, win = footprint.win)
-
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) + 
-  geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
-  geom_sf(data = seal.locs, size = 0.3, col = "red")
-
-# prepare covariates for background sample 
-bg.mat <- cbind(bg.pts$x, bg.pts$y)
-
-bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
-row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
-bg.idx <- c()
-for(i in 1:nrow(X.full)){
-  if(X.full[i,2] != 0){
-    bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
-  }
-}
-# 10000 -> 9802 background points (some correspond to NA in bath raster)
-# 50000 -> 49008 bg pts
-X.full <- scale(X.full[,-2]) 
-
-X.obs <- X.full[c(seal.idx, bg.idx),]
 X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
-
-y.binary <- rep(0, n + length(bg.idx))
-y.binary[1:n] <- 1
 
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
 tic()
-beta.save.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, 10000)
-toc() # 2.5 hours
-
+out.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, 100000)
+toc() # ~ 18 min
+  
 # posterior summary
-beta.save <- beta.save.pg$beta[,-(1:1000)]
+beta.save.pg <- out.pg$beta[,-(1:1000)] # discard burn-in
 
-plot(beta.save[2,], type = "l")
-plot(beta.save[3,], type = "l")
+plot(beta.save.pg[2,], type = "l")
+plot(beta.save.pg[3,], type = "l")
+
+# prepare for second stage
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = beta.save.pg$beta[1,],
+                    n.mcmc = 10000, n = n, ds = ds, X.full = X.obs)
 
 # --- 1st Stage MCMC Plot Comparison -------------------------------------------
 beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
@@ -301,6 +273,8 @@ dev.off()
 
 # --- Fit SPP using cond. output (num quad stage 2) ----------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
+
+# using num quad results
 tic()
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)
 toc() # 138.445 sec (~2.3 min)
@@ -311,8 +285,8 @@ beta.0.save <- out.cond.2.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
-plot(out.cond.2.full$beta.0.save,type="l")
-matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
+plot(beta.0.save,type="l")
+matplot(t(beta.save),lty=1,type="l")
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))

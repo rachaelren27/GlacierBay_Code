@@ -23,7 +23,7 @@ polya_gamma <- function(y, X,
   
   ### Cool Start
   beta=mu_beta
-
+  
   ###
   ### Storage
   ###
@@ -34,20 +34,25 @@ polya_gamma <- function(y, X,
   ### MCMC loop
   ###
   
+  kappa=y-1/2
+  n <- nrow(X)
+  
   for(q in 1:n_mcmc){
     
     ### Sample omega
-    omega=rpg(nrow(X), 1, X%*%beta)
+    omega=pgdraw(rep(1, n), X%*%beta)
     
     ### Sample beta
-    kappa=y-1/2
-    V_omega=solve(t(X)%*%diag(omega)%*%X+Sigma_beta_inv)
+    omega_X <- sweep(X, 1, omega, "*")
+    V_omega=solve(crossprod(X, omega_X))
+    # can replace diag()
+    # use double back solve
     m_omega=V_omega%*%(t(X)%*%kappa+Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
     
     ### Save Samples
     beta_save[,q]=beta
-
+    
     ###
     ### Timer
     ###

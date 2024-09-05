@@ -1,4 +1,5 @@
 setwd("/Users/rlr3795/Desktop/GlacierBay_Project")
+load(here("GlacierBay_Code", "SPP_script.RData"))
 
 library(sf)
 library(here)
@@ -15,6 +16,7 @@ library(reshape2)
 library(BayesLogit)
 library(mvnfast)
 library(pgdraw)
+library(coda)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -136,7 +138,7 @@ X.obs <- X.full[seal.idx,]
 n <- length(seal.idx)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
-n.mcmc=10000
+n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
 out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc)
@@ -145,7 +147,7 @@ toc() # 543.252 sec elapsed (~9 min)
 # discard burn-in
 n.burn <- 0.1*n.mcmc
 beta.save.full.lik <- out.comp.full$beta.save[,-(1:n.burn)]
-beta.0.save.full.llik <- out.comp.full$beta.0.save[-(1:n.burn)]
+beta.0.save.full.lik <- out.comp.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
@@ -162,6 +164,19 @@ abline(h = 0, lty = 2)
 apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# N posterior
+N.comp.save <- rep(0, n.mcmc - n.burn)
+
+for(k in 1:(n.mcmc - n.burn)){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=beta.0.save.full.lik[k]
+  beta.tmp=beta.save.full.lik[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
+  N.comp.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+
+hist(N.comp.save)
 
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
@@ -248,9 +263,23 @@ beta.save.pg <- out.pg$beta[,-(1:1000)] # discard burn-in
 plot(beta.save.pg[2,], type = "l")
 plot(beta.save.pg[3,], type = "l")
 
+# compare polya-gamma and full-conditional trace plots
+pdf("beta1_trace_compare.pdf")
+par(mfrow = c(2,1))
+plot(beta.save.full.lik[1,], type = "l")
+plot(beta.save.full.pg[,1], type = "l")
+dev.off()
+
+pdf("beta2_trace_compare.pdf")
+par(mfrow = c(2,1))
+plot(beta.save.full.lik[2,], type = "l")
+plot(beta.save.full.pg[,2], type = "l")
+dev.off()
+
 # prepare for second stage
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = beta.save.pg$beta[1,],
-                    n.mcmc = 10000, n = n, ds = ds, X.full = X.obs)
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
+                    beta.0.save = out.cond.full$beta.0.save,
+                    n.mcmc = 100000, n = n, ds = ds, X.full = X.win.full)
 
 # --- 1st Stage MCMC Plot Comparison -------------------------------------------
 beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
@@ -282,6 +311,31 @@ toc() # 138.445 sec (~2.3 min)
 # discard burn-in
 beta.save <- out.cond.2.full$beta.save[,-(1:n.burn)]
 beta.0.save <- out.cond.2.full$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+matplot(t(beta.save),lty=1,type="l")
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Fit SPP using cond. output (polya-gamma stage 2) -------------------------
+tic()
+out.cond.2.full.pg <- spp.stg2.mcmc(out.cond.pg)
+toc() # 128.9 sec (~2 min)
+
+# discard burn-in
+beta.save <- out.cond.2.full.pg$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.2.full.pg$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))

@@ -13,6 +13,7 @@ n.mcmc=out$n.mcmc
 X.full=out$X.full
 p=dim(X.full)[2]
 ds=out$ds
+accept <- 0
 
 beta.0.save=rep(0,n.mcmc)
 beta.save=matrix(0,p,n.mcmc)
@@ -24,7 +25,7 @@ beta.save=matrix(0,p,n.mcmc)
 beta.0=out$beta.0.save[n.mcmc]
 beta=c(out$beta.save[,n.mcmc])
 lam.int=sum(exp(log(ds)+beta.0+X.full%*%beta))
-
+  
 ###
 ###  MCMC Loop 
 ###
@@ -48,6 +49,7 @@ for(k in 1:n.mcmc){
     beta.0=beta.0.star
     beta=beta.star
     lam.int=lam.int.star
+    accept = accept + 1
   }
 
   ###
@@ -58,6 +60,8 @@ for(k in 1:n.mcmc){
   beta.save[,k]=beta
 
 };cat("\n")
+
+print(accept/n.mcmc)
 
 ###
 ###  Write Output 

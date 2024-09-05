@@ -75,8 +75,8 @@ beta.0 <- 4
 lam.full <- exp(beta.0+X.full%*%beta)
 lam.max <- max(lam.full)
 
-# plot covariates and lambda
 full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
+# plot covariates and lambda
 ggplot(data = full.df, aes(x = x, y = y, col = x)) + 
   geom_point(size = 0.5)
 ggplot(data = full.df, aes(x = x, y = y, col = y)) + 
@@ -158,6 +158,19 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+# posterior for N
+N.comp.save <- rep(0, n.mcmc - n.burn)
+
+for(k in 1:(n.mcmc - n.burn)){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=beta.0.save[k]
+  beta.tmp=beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
+  N.comp.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+
+hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
+abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
@@ -170,9 +183,12 @@ abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
+effectiveSize(out.cond.full$beta.save[1,]) # 407
+effectiveSize(out.cond.full$beta.save[2,]) # 463
+
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 5000
+n.bg <- 10000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 plot(domain)
@@ -196,24 +212,75 @@ p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
 tic()
-beta.save.pg <- polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 5000)
+beta.save.pg <- polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 100000)
 toc()
 
+plot(beta.save.pg$beta[1,], type = "l")
+
 plot(beta.save.pg$beta[2,], type = "l")
+abline(h=2,col=rgb(0,1,0,.8),lty=2)
+effectiveSize(beta.save.pg$beta[2,]) # 2111
+
 plot(beta.save.pg$beta[3,], type = "l")
+abline(h=1,col=rgb(0,1,0,.8),lty=2)
+effectiveSize(beta.save.pg$beta[3,]) # 2326
 
 matplot(t(beta.save.pg$beta[-1,]),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
+# prepare for second stage
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = out.cond.full$beta.0.save,
+                    n.mcmc = 100000, n = n, ds = ds, X.full = X.win.full)
+
 # --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)
+# acceptance rate: 0.018
 
 layout(matrix(1:2,2,1))
 plot(out.cond.2.full$beta.0.save,type="l")
 abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(out.cond.2.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+effectiveSize(out.cond.2.full$beta.0.save) # 998
+effectiveSize(out.cond.2.full$beta.save[1,]) # 974
+effectiveSize(out.cond.2.full$beta.save[2,]) # 976
+
+# --- Fit SPP using cond. likelihood (polya-gamma stage 2) ---------------------
+source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
+
+# using num quad results
+tic()
+out.cond.pg2 = spp.stg2.mcmc(out.cond.pg)
+toc()
+# acceptance rate: 0.017
+
+# discard burn-in
+beta.save <- out.cond.pg2$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.pg2$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(beta.save),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+effectiveSize(beta.0.save) # 777
+effectiveSize(beta.save[1,]) # 735
+effectiveSize(beta.save[2,]) # 744
 
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:3,1,3))

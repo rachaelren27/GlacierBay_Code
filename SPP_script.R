@@ -204,7 +204,7 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# --- Fit SPPS using cond. likelihood (Bernoulli GLM stage 1) ------------------
+# --- Fit SPPS using cond. likelihood (stan glm stage 1) ------------------
 # obtain background sample
   n.bg <- 50000
   bg.pts <- rpoint(n.bg, win = footprint.win)
@@ -245,6 +245,11 @@ out.bern.cond <- stan_glm(y ~ bath + glac.dist, family=binomial(link="logit"), d
 toc()
 # 9802 bg pts: 376.625 sec (~6.3 min)
 # 49008 bg pts: 2079 sec (~34.7 min)
+
+# prepare for second stage
+out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]), 
+                      beta.0.save = out.cond.full$beta.0.save[1:50000],
+                      n.mcmc = 50000, n = n, ds = ds, X.full = X.win.full)
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
@@ -328,6 +333,31 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+# --- Fit SPP using cond. output (stan glm stage 2) ----------------------------
+tic()
+out.cond.2.bern <- spp.stg2.mcmc(out.cond.bern)
+toc() 
+
+# discard burn-in
+beta.save <- out.cond.2.bern$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.2.bern$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+matplot(t(beta.save),lty=1,type="l")
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
 # --- Fit SPP using cond. output (polya-gamma stage 2) -------------------------
 tic()
 out.cond.2.full.pg <- spp.stg2.mcmc(out.cond.pg)
@@ -369,6 +399,7 @@ lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
 lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)
 
 # --- Posterior for N ----------------------------------------------------------
+# num quad samples
 N.save=rep(0,n.mcmc)
 
 X.nowin.full <- X.full[-win.idx,]
@@ -396,4 +427,31 @@ hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
 mean(N.save)
 sd(N.save)
 quantile(N.save, c(0.025, 0.975))
+
+
+# polya-gamma samples
+N.save.pg=rep(0,n.mcmc)
+
+tic()
+for(k in 1:n.mcmc){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=out.cond.2.full.pg$beta.0.save[k]
+  beta.tmp=out.cond.2.full.pg$beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
+  N.save.pg[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+toc() # ~ 2min
+
+par(mfrow = c(1,1))
+
+# discard burn-in
+N.save.pg <- N.save.pg[-(1:n.burn)]
+
+plot(N.save.pg,type="l")
+hist(N.save.pg,breaks=50,prob=TRUE,main="",xlab="N")
+
+# posterior summary
+mean(N.save.pg)
+sd(N.save.pg)
+quantile(N.save.pg, c(0.025, 0.975))
 

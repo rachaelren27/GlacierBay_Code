@@ -1,6 +1,8 @@
 library(tidyverse)
 library(raster)
 library(spatstat)
+library(tictoc)
+library(here)
 
 # --- Simulate 2D data ---------------------------------------------------------
 set.seed(1234)
@@ -175,7 +177,7 @@ abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
 source("spp.cond.mcmc.R")
-out.cond.full=spp.cond.mcmc(s.win,X.win,X.win.full,ds,n.mcmc)
+out.cond.full <- spp.cond.mcmc(s.win,X.win,X.win.full,ds,n.mcmc)
 
 layout(matrix(1:2,2,1))
 plot(out.cond.full$beta.0.save,type="l")
@@ -206,14 +208,14 @@ out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.
                           iter = 100000, chains = 1)
 
 # --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
-source(here("GlacierBay_Code", "Polya_Gamma.R"))
+source(here("Polya_Gamma.R"))
 X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
 tic()
 beta.save.pg <- polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 100000)
-toc()
+toc() # 236 sec
 
 plot(beta.save.pg$beta[1,], type = "l")
 
@@ -229,8 +231,31 @@ matplot(t(beta.save.pg$beta[-1,]),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # prepare for second stage
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = out.cond.full$beta.0.save,
+# beta.0.precise <- rnorm(n.mcmc, mean = 3.7, sd = 1)
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = rnorm(n.mcmc, 0, 10),
                     n.mcmc = 100000, n = n, ds = ds, X.full = X.win.full)
+
+# --- 2nd stage: compute lambda integrals --------------------------------------
+beta.save <- beta.save.pg$beta[2:3,]
+theta.save <- rep(0,n.mcmc)
+
+for(k in 1:n.mcmc){
+  if(k%%1000==0){cat(k," ")}
+  lam.int <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
+  theta.save[k] <- rgamma(1, 0.01 + n, rate = 0.01 + lam.int)
+};cat("\n")
+
+beta.0.save <- log(theta.save)
+
+plot(beta.0.save, type ="l")
+
+# compare marginal posterior
+hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,1))
+lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 2),col="red",lwd=2)
+lines(density(out.cond.pg2$beta.0.save[-(1:1000)],n=1000, adjust = 2),
+      col="green",lwd=2)
+abline(v = 4, lty = 2, lwd = 2)
 
 # --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
 source("spp.stg2.mcmc.R")
@@ -248,7 +273,7 @@ effectiveSize(out.cond.2.full$beta.save[1,]) # 974
 effectiveSize(out.cond.2.full$beta.save[2,]) # 976
 
 # --- Fit SPP using cond. likelihood (polya-gamma stage 2) ---------------------
-source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
+source(here("spp_win_2D", "spp.stg2.mcmc.R"))
 
 # using num quad results
 tic()
@@ -286,16 +311,16 @@ effectiveSize(beta.save[2,]) # 744
 layout(matrix(1:3,1,3))
 hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
      ylim = c(0,1))
-lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=2)
-lines(density(out.cond.2.full$beta.0.save,n=1000),col=3,lwd=2)
+lines(density(out.cond.full$beta.0.save,n=1000),col="red",lwd=2)
+lines(density(out.cond.2.full$beta.0.save,n=1000),col="green",lwd=2)
 hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
      ylim = c(0,1))
-lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=2)
-lines(density(out.cond.2.full$beta.save[1,],n=1000),col=3,lwd=2)
+lines(density(out.cond.full$beta.save[1,],n=1000),col="red",lwd=2)
+lines(density(out.cond.2.full$beta.save[1,],n=1000),col="green",lwd=2)
 hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
      ylim = c(0,1))
-lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=2)
-lines(density(out.cond.2.full$beta.save[2,],n=1000),col=3,lwd=2)
+lines(density(out.cond.full$beta.save[2,],n=1000),col="red",lwd=2)
+lines(density(out.cond.2.full$beta.save[2,],n=1000),col="green",lwd=2)
 
 # --- Posterior for N ----------------------------------------------------------
 N.save=rep(0,n.mcmc)

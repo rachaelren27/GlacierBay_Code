@@ -151,8 +151,8 @@ beta.0.save.full.lik <- out.comp.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
-plot(beta.0.save,type="l")
-matplot(t(beta.save),lty=1,type="l", col = c("black", "red"))
+plot(beta.0.save.full.lik,type="l")
+matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -178,11 +178,16 @@ for(k in 1:(n.mcmc - n.burn)){
 
 hist(N.comp.save)
 
+# posterior summary
+mean(N.comp.save)
+sd(N.comp.save)
+quantile(N.comp.save, c(0.025, 0.975))
+
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()
 out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
-toc() # 282.763 sec (~4.7 min)
+toc() # 290.419 sec (~4.7 min)
 
 # discard burn-in
 beta.save <- out.cond.full$beta.save[,-(1:n.burn)]
@@ -190,7 +195,7 @@ beta.0.save <- out.cond.full$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
-plot(out.cond.full$beta.0.save,type="l")
+# plot(out.cond.full$beta.0.save,type="l")
 matplot(t(out.cond.full$beta.save),lty=1,type="l")
 
 # posterior summary
@@ -204,7 +209,21 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# --- Fit SPPS using cond. likelihood (stan glm stage 1) ------------------
+# --- Sample beta_0 using num quad stage 1 samples -----------------------------
+beta.save <- out.cond.full$beta.save
+theta.save <- rep(0,n.mcmc)
+
+for(k in 1:n.mcmc){
+  if(k%%1000==0){cat(k," ")}
+  lam.int <- sum(exp(log(ds)+X.full%*%beta.save[,k]))
+  theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
+};cat("\n")
+
+beta.0.save <- log(theta.save)
+
+plot(beta.0.save, type ="l")
+
+# --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
   n.bg <- 50000
   bg.pts <- rpoint(n.bg, win = footprint.win)
@@ -248,7 +267,7 @@ toc()
 
 # prepare for second stage
 out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]), 
-                      beta.0.save = out.cond.full$beta.0.save[1:50000],
+                      # beta.0.save = out.cond.full$beta.0.save[1:50000],
                       n.mcmc = 50000, n = n, ds = ds, X.full = X.win.full)
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
@@ -282,9 +301,40 @@ plot(beta.save.full.pg[,2], type = "l")
 dev.off()
 
 # prepare for second stage
+beta.0.precise <- rnorm(n.mcmc, mean(out.comp.full$beta.0.save), 
+                                sd(out.comp.full$beta.0.save))
 out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
-                    beta.0.save = out.cond.full$beta.0.save,
-                    n.mcmc = 100000, n = n, ds = ds, X.full = X.win.full)
+                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
+
+# x <- seq(0,100,length.out = 10000)
+# log_gamma <- function(x){
+#   return(log(dgamma(x, 1, 0.001)))
+# }
+# plot(x = x, y = log_gamma(x), type = "l")
+# 
+# plot(x = x, y = dgamma(x,1000,1), type = "l")
+
+# --- Sample beta_0 using polya-gamma stage 1 samples --------------------------
+beta.save <- out.cond.pg$beta.save
+theta.save <- rep(0,n.mcmc)
+
+for(k in 1:n.mcmc){
+  if(k%%1000==0){cat(k," ")}
+  lam.int <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
+  theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
+};cat("\n")
+
+beta.0.save <- log(theta.save)
+
+plot(beta.0.save, type ="l")
+
+# compare marginal posterior
+hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,1))
+lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 3),col="red",lwd=2)
+lines(density(out.cond.2.full$beta.0.save[-(1:1000)],n=1000, adjust = 3),
+      col="green",lwd=2)
 
 # --- 1st Stage MCMC Plot Comparison -------------------------------------------
 beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
@@ -399,6 +449,36 @@ lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
 lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)
 
 # --- Posterior for N ----------------------------------------------------------
+# complete likelihood samples
+N.save=rep(0,n.mcmc)
+
+X.nowin.full <- X.full[-win.idx,]
+n <- nrow(seal.mat)
+
+tic()
+for(k in 1:n.mcmc){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=out.cond.2.full$beta.0.save[k]
+  beta.tmp=out.cond.2.full$beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
+  N.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+toc()
+
+par(mfrow = c(1,1))
+
+# discard burn-in
+N.save <- N.save[-(1:n.burn)]
+
+plot(N.save,type="l")
+hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
+
+# posterior summary
+mean(N.save)
+sd(N.save)
+quantile(N.save, c(0.025, 0.975))
+
+
 # num quad samples
 N.save=rep(0,n.mcmc)
 

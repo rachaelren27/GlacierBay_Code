@@ -8,6 +8,7 @@ polya_gamma <- function(y, X,
   
   # library(BayesLogit)
   # library(Boom)
+  library(pgdraw)
   
   
   ###
@@ -45,7 +46,6 @@ polya_gamma <- function(y, X,
     ### Sample beta
     omega_X <- sweep(X, 1, omega, "*")
     V_omega=solve(crossprod(X, omega_X))
-    # can replace diag()
     # use double back solve
     m_omega=V_omega%*%(t(X)%*%kappa+Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
@@ -57,7 +57,7 @@ polya_gamma <- function(y, X,
     ### Timer
     ###
     
-    if (q %% 100 == 0) {cat(q, " ")}
+    if (q %% 1000 == 0) {cat(q, " ")}
     
   }
   

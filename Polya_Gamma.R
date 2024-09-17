@@ -41,13 +41,13 @@ polya_gamma <- function(y, X,
   for(q in 1:n_mcmc){
     
     ### Sample omega
-    omega=pgdraw(rep(1, n), X%*%beta)
+    omega=pgdraw(rep(1, n), X%*%beta) # parallelize with rpg?
     
     ### Sample beta
     omega_X <- sweep(X, 1, omega, "*")
     V_omega=solve(crossprod(X, omega_X))
     # use double back solve
-    m_omega=V_omega%*%(t(X)%*%kappa+Sigma_beta_inv_times_mu)
+    m_omega=V_omega%*%(crossprod(X, kappa)+Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
     
     ### Save Samples

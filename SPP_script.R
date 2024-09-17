@@ -300,12 +300,12 @@ plot(beta.save.full.lik[2,], type = "l")
 plot(beta.save.full.pg[,2], type = "l")
 dev.off()
 
-# prepare for second stage
-beta.0.precise <- rnorm(n.mcmc, mean(out.comp.full$beta.0.save), 
-                                sd(out.comp.full$beta.0.save))
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
-                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
-                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
+# # prepare for second stage
+# beta.0.precise <- rnorm(n.mcmc, mean(out.comp.full$beta.0.save), 
+#                                 sd(out.comp.full$beta.0.save))
+# out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
+#                     # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+#                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
 
 # x <- seq(0,100,length.out = 10000)
 # log_gamma <- function(x){
@@ -315,26 +315,61 @@ out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,],
 # 
 # plot(x = x, y = dgamma(x,1000,1), type = "l")
 
-# --- Sample beta_0 using polya-gamma stage 1 samples --------------------------
+# --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.cond.pg$beta.save
-theta.save <- rep(0,n.mcmc)
+# theta.save <- rep(0,n.mcmc)
+lam.int.save <- rep(0, n.mcmc)
 
+tic()
 for(k in 1:n.mcmc){
   if(k%%1000==0){cat(k," ")}
-  lam.int <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-  theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
+  lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
+  # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
 };cat("\n")
+toc()
 
-beta.0.save <- log(theta.save)
+# beta.0.save.gibbs <- log(theta.save)
+# 
+# plot(beta.0.save, type ="l")
 
-plot(beta.0.save, type ="l")
+# prepare for third stage
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
+                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
+                    lam.int.save = lam.int.save)
 
-# compare marginal posterior
-hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1))
-lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 3),col="red",lwd=2)
-lines(density(out.cond.2.full$beta.0.save[-(1:1000)],n=1000, adjust = 3),
-      col="green",lwd=2)
+# --- 3rd stage MCMC -----------------------------------------------------------
+source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
+tic()
+out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
+toc() # ~ 1 sec
+
+# discard burn-in
+beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+matplot(t(beta.save),lty=1,type="l")
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# # compare marginal posterior
+# hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+#      ylim = c(0,1))
+# lines(density(beta.0.save.gibbs[-(1:1000)],n=1000, adjust = 3),col="red",lwd=2)
+# lines(density(out.cond.2.full.pg$beta.0.save[-(1:1000)],n=1000, adjust = 3),
+#       col="green",lwd=2)
 
 # --- 1st Stage MCMC Plot Comparison -------------------------------------------
 beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]

@@ -23,7 +23,7 @@ n=nrow(s.mat)
 p=dim(X)[2]
 
 beta.save=matrix(0,p,n.mcmc)
-# beta.0.save=rep(0,n.mcmc) # these are MC draws from the prior
+beta.0.save=rep(0,n.mcmc) # these are MC draws from the prior
 lam.int.save <- rep(0,n.mcmc)
 
 ###
@@ -76,6 +76,6 @@ for(k in 1:n.mcmc){
 ###  Write Output
 ###
 
-list(beta.save=beta.save,n.mcmc=n.mcmc,n=n,ds=ds,X.full=X.full)
+list(beta.0.save = beta.0.save, beta.save=beta.save,n.mcmc=n.mcmc,n=n,ds=ds,X.full=X.full)
 # omit beta.0.save, add lam.int.save
 }

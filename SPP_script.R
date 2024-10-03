@@ -17,6 +17,8 @@ library(BayesLogit)
 library(mvnfast)
 library(pgdraw)
 library(coda)
+library(parallel)
+library(viridis)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -141,7 +143,7 @@ n <- length(seal.idx)
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc)
+out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.05,0.05)
 toc() # 543.252 sec elapsed (~9 min)
 
 # discard burn-in
@@ -153,6 +155,40 @@ beta.0.save.full.lik <- out.comp.full$beta.0.save[-(1:n.burn)]
 layout(matrix(1:2,2,1))
 plot(beta.0.save.full.lik,type="l")
 matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
+
+# find optimal tuning parameters
+beta.0.tune <- c(0.01,0.05,0.1,0.5)
+beta.tune <- c(0.01,0.05,0.1,0.5)
+tune.params <- expand.grid(beta.0.tune, beta.tune)
+
+out.comp.compare <- list()
+effective.size <- matrix(nrow = nrow(tune.params), ncol = 3)
+# for(i in 1:nrow(tune.params)){
+#   out.comp <- spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,
+#                                          10000,tune.params[i,1], tune.params[i,2])
+#   effective.size[i,] <- c(effectiveSize(out.comp.compare$beta.0.save[-(1:1000)]),
+#                           effectiveSize(out.comp.compare$beta.save[1,-(1:1000)]),
+#                           effectiveSize(out.comp.compare$beta.save[2,-(1:1000)]))
+#   out.comp.compare[[i]] <- out.comp
+# }
+
+process_function <- function(i) {
+  result <- list()
+  out.comp <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, win.area, 
+                            10000, tune.params[i, 1], tune.params[i, 2])
+  result$out.comp <- out.comp
+  result$eff.size <- c(effectiveSize(out.comp$beta.0.save[-(1:2000)]),
+                       effectiveSize(out.comp$beta.save[1, -(1:2000)]),
+                       effectiveSize(out.comp$beta.save[2, -(1:2000)]))
+  return(result)
+}
+
+# Run the parallel loop
+results <- mclapply(1:nrow(tune.params), process_function, mc.cores = 10)
+
+# Combine the results
+out.comp.compare <- lapply(results, function(x) x$out.comp)
+effective.size <- do.call(rbind, lapply(results, function(x) x$eff.size))
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -272,13 +308,14 @@ out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]),
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
+n.cores <- detectCores()
 
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
 tic()
-out.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, 100000)
+out.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, n.mcmc, n.cores)
 toc() # ~ 18 min
   
 # posterior summary
@@ -351,6 +388,7 @@ beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
 # trace plots
 layout(matrix(1:2,2,1))
 plot(beta.0.save,type="l")
+
 matplot(t(beta.save),lty=1,type="l")
 
 # posterior summary
@@ -360,9 +398,20 @@ vioplot(data.frame(beta.save.full),
         ylim = c(-10,5))
 abline(h = 0, lty = 2)
 
-apply(beta.save.full,2,mean) 
+beta.post.means <- apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# posterior mean heat map
+lam.full <- exp(beta.post.means[1] + X.full%*%beta.post.means[-1])
+s.full <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
+lam.full.df <- as.data.frame(cbind(s.full, lam.full))
+lam.full.rast <- rasterFromXYZ(lam.full.df)
+
+pdf("posterior_mean_heatmap.pdf")
+plot(lam.full.rast, col = rev(viridis(100)))
+plot(survey.win, add = TRUE)
+dev.off()
 
 # # compare marginal posterior
 # hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
@@ -469,19 +518,19 @@ apply(beta.save.full,2,sd)
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Compare Marginal Posteriors ----------------------------------------------
-# layout(matrix(1:3,1,3))
-hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+layout(matrix(1:3,1,3))
+hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
      ylim = c(0,1))
-lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.0.save,n=1000,adj=2),col=3,lwd=1)
-hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+lines(density(out.cond.2.full.pg$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
+hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
      ylim = c(0,5))
-lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.save[1,],n=1000,adj=2),col=3,lwd=1)
-hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+lines(density(out.cond.2.full.pg$beta.save[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
+hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
      ylim = c(0,1.5))
-lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)
+lines(density(out.cond.2.full.pg$beta.save[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples

@@ -8,8 +8,7 @@ polya_gamma <- function(y, X,
   
   # library(BayesLogit)
   # library(Boom)
-  library(pgdraw)
-  
+  require(pgdraw)
   
   ###
   ### Loop Variables
@@ -36,17 +35,16 @@ polya_gamma <- function(y, X,
   ###
   
   kappa=y-1/2
-  n <- nrow(X)
+  # n <- nrow(X)
   
   for(q in 1:n_mcmc){
     
     ### Sample omega
-    omega=pgdraw(rep(1, n), X%*%beta) # parallelize with rpg?
+    omega_w <- pgdraw(1, X%*%beta)
     
     ### Sample beta
-    omega_X <- sweep(X, 1, omega, "*")
-    V_omega=solve(crossprod(X, omega_X))
-    # use double back solve
+    omega_w_X <- X * omega_w
+    V_omega=solve(crossprod(X, omega_w_X))
     m_omega=V_omega%*%(crossprod(X, kappa)+Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
     

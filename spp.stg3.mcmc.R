@@ -34,7 +34,7 @@ spp.stg3.mcmc <- function(out){
     ###
     ###  Propose theta
     ###
-    theta.star <- rgamma(1, a + n, b + lam.int.save[k])
+    theta <- rgamma(1, a + n, b + lam.int)
     
     ###
     ###  Propose beta
@@ -43,7 +43,7 @@ spp.stg3.mcmc <- function(out){
     idx.star=sample(1:n.mcmc,1)
     beta.star=c(out$beta.save[,idx.star])
     lam.int.star <- lam.int.save[idx.star]
-    theta.lam.int.star=theta.star*lam.int.star 
+    theta.lam.int.star=theta*lam.int.star 
     
     theta.lam.int <- theta*lam.int
       
@@ -51,7 +51,6 @@ spp.stg3.mcmc <- function(out){
     mh.2=dpois(n,theta.lam.int,log=TRUE)
     
     if(exp(mh.1-mh.2)>runif(1)){
-      theta=theta.star
       beta=beta.star
       lam.int=lam.int.star
       accept = accept + 1

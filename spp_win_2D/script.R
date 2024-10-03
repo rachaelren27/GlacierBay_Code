@@ -1,3 +1,5 @@
+setwd("/Users/rlr3795/Desktop/GlacierBay_Project")
+
 library(tidyverse)
 library(raster)
 library(spatstat)
@@ -137,9 +139,9 @@ points(s.obs[,1], s.obs[,2], col = factor(obs.win), pch = 19, cex = 0.5)
 
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
-source("spp.comp.mcmc.R")
+source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc)
+out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 toc() # 6.568 sec
 
 # discard burn-in
@@ -176,7 +178,7 @@ abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
-source("spp.cond.mcmc.R")
+source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 out.cond.full <- spp.cond.mcmc(s.win,X.win,X.win.full,ds,n.mcmc)
 
 layout(matrix(1:2,2,1))
@@ -208,84 +210,29 @@ out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.
                           iter = 100000, chains = 1)
 
 # --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
-source(here("Polya_Gamma.R"))
+source(here("GlacierBay_Code", "Polya_Gamma.R"))
 X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
+w <- c()
+for(i in 1:length(y.bern)){
+  w[i] <- ifelse(y.bern[i] == 0, 10000, 1)
+}
 tic()
-beta.save.pg <- polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 100000)
+beta.save.pg <- polya_gamma(y.bern, X.pg,
+                            mu.beta, sigma.beta, 100000)
 toc() # 236 sec
 
-profvis({
-  polya_gamma <- function(y, X,
-                          mu_beta, Sigma_beta,
-                          n_mcmc){
-    
-    ###
-    ### Packages
-    ###
-    
-    # library(BayesLogit)
-    # library(Boom)
-    library(pgdraw)
-    
-    
-    ###
-    ### Loop Variables
-    ### 
-    
-    Sigma_beta_inv=solve(Sigma_beta)
-    Sigma_beta_inv_times_mu=Sigma_beta_inv%*%mu_beta
-    
-    ###
-    ### Starting Values 
-    ###
-    
-    ### Cool Start
-    beta=mu_beta
-    
-    ###
-    ### Storage
-    ###
-    
-    beta_save=matrix(NA, ncol(X), n_mcmc)
-    
-    ###
-    ### MCMC loop
-    ###
-    
-    kappa=y-1/2
-    n <- nrow(X)
-    
-    for(q in 1:n_mcmc){
-      
-      ### Sample omega
-      omega=pgdraw(rep(1, n), X%*%beta)
-      
-      ### Sample beta
-      omega_X <- sweep(X, 1, omega, "*")
-      V_omega=solve(crossprod(X, omega_X))
-      # use double back solve
-      m_omega=V_omega%*%(crossprod(X, kappa)+Sigma_beta_inv_times_mu)
-      beta=t(mvnfast::rmvn(1, m_omega, V_omega))
-      
-      ### Save Samples
-      beta_save[,q]=beta
-      
-      ###
-      ### Timer
-      ###
-      
-      if (q %% 1000 == 0) {cat(q, " ")}
-      
-    }
-    
-    list(beta=beta_save)
-  }
-  
-  polya_gamma(y.bern, X.pg, mu.beta, sigma.beta, 100)
-})
+beta.0.save <- beta.save.pg$beta[1,]
+beta.save <- beta.save.pg$beta[2:3,]
+
+# # check weights
+# y_i.hat <- c()
+# for(i in 1:n.mcmc){
+#   y_i.hat[i] <- ((tot.win.area*exp(beta.0.save[i] + t(X.pg[i,])%*%beta.save[,i]))/(100000*1000))/
+#                 ((1 + tot.win.area*exp(beta.0.save[i] + t(X.pg[i,])%*%beta.save[,i]))/(100000*1000))
+# }
 
 # plot(beta.save.pg$beta[1,], type = "l")
 
@@ -307,27 +254,49 @@ out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = rnorm(n.mc
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
 beta.save <- beta.save.pg$beta[2:3,]
-theta.save <- rep(0,n.mcmc)
+# theta.save <- rep(0,n.mcmc)
+lam.int.save <- c()
 
 for(k in 1:n.mcmc){
   if(k%%1000==0){cat(k," ")}
-  lam.int <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-  theta.save[k] <- rgamma(1, 0.01 + n, rate = 0.01 + lam.int)
+  lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
+  # theta.save[k] <- rgamma(1, 0.01 + n, rate = 0.01 + lam.int)
 };cat("\n")
 
-beta.0.save <- log(theta.save)
+# beta.0.save <- log(theta.save)
 
-plot(beta.0.save, type ="l")
+# plot(beta.0.save, type ="l")
 
-# compare marginal posterior
-hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1))
-lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 2),col="red",lwd=2)
-lines(density(out.cond.pg2$beta.0.save[-(1:1000)],n=1000, adjust = 2),
-      col="green",lwd=2)
+# # compare marginal posterior
+# hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+#      ylim = c(0,1))
+# lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 2),col="red",lwd=2)
+# lines(density(out.cond.pg2$beta.0.save[-(1:1000)],n=1000, adjust = 2),
+#       col="green",lwd=2)
+
+out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
+                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
+                    lam.int.save = lam.int.save)
+
+# --- 3rd stage MCMC -----------------------------------------------------------
+source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
+# tic()
+out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
+# toc()
+
+# discard burn-in
+beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(beta.save),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 # --- Fit SPP using cond. output with 2nd stage MCMC ---------------------------
-source("spp.stg2.mcmc.R")
+source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
 out.cond.2.full=spp.stg2.mcmc(out.cond.full)
 # acceptance rate: 0.018
 
@@ -377,27 +346,35 @@ effectiveSize(beta.save[1,]) # 735
 effectiveSize(beta.save[2,]) # 744
 
 # --- Compare Marginal Posteriors ----------------------------------------------
+# pdf("comp_marginals.pdf", width = 14)
+
+out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
+
 layout(matrix(1:3,1,3))
-hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1))
-lines(density(out.cond.full$beta.0.save,n=1000),col="red",lwd=2)
-lines(density(out.cond.2.full$beta.0.save,n=1000),col="green",lwd=2)
-hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
-     ylim = c(0,1))
-lines(density(out.cond.full$beta.save[1,],n=1000),col="red",lwd=2)
-lines(density(out.cond.2.full$beta.save[1,],n=1000),col="green",lwd=2)
-hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,1))
-lines(density(out.cond.full$beta.save[2,],n=1000),col="red",lwd=2)
-lines(density(out.cond.2.full$beta.save[2,],n=1000),col="green",lwd=2)
+hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+lines(density(out.cond.2.full$beta.0.save,n=1000),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000),col="green",lwd=2)
+abline(v = 4, lwd = 2, lty = 2)
+hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+lines(density(out.cond.2.full$beta.save[1,],n=1000),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000),col="green",lwd=2)
+abline(v = 2, lwd = 2, lty = 2)
+hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+lines(density(out.cond.2.full$beta.save[2,],n=1000),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000),col="green",lwd=2)
+abline(v = 1, lwd = 2, lty = 2)
+# dev.off()
 
 # --- Posterior for N ----------------------------------------------------------
 N.save=rep(0,n.mcmc)
 
 for(k in 1:n.mcmc){
   if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=out.cond.2.full$beta.0.save[k]
-  beta.tmp=out.cond.2.full$beta.save[,k]
+  beta.0.tmp=out.cond.pg3$beta.0.save[k]
+  beta.tmp=out.cond.pg3$beta.save[,k]
   lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
   N.save[k]=n+rpois(1,lam.nowin.int)
 };cat("\n")
@@ -408,7 +385,7 @@ plot(N.save,type="l")
 abline(h=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 hist(N.save[-(1:1000)],breaks=50,prob=TRUE,main="",xlab="N")
-abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
+abline(v=N,lty=2,lwd=2)
 
 # --- PPD of lambda full area --------------------------------------------------
 # idx.sm=seq(1,m,2)

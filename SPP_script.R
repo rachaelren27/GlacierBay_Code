@@ -261,7 +261,7 @@ plot(beta.0.save, type ="l")
 
 # --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
-  n.bg <- 50000
+  n.bg <- 10000
   bg.pts <- rpoint(n.bg, win = footprint.win)
   
   ggplot() + 
@@ -308,7 +308,6 @@ out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]),
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
-n.cores <- detectCores()
 
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
@@ -619,3 +618,23 @@ mean(N.save.pg)
 sd(N.save.pg)
 quantile(N.save.pg, c(0.025, 0.975))
 
+# --- IWLR ---------------------------------------------------------------------
+boosted.ipp <- glm(y.binary~., family="binomial", weights=1E3^(1-y.binary),
+                   data = as.data.frame(X.pg[,-1]))
+
+# test weights
+beta.hat <- coef(boosted.ipp)
+y_i.hat <- (tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(1E5*n.bg))/
+  (1 + tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(1E5*n.bg))
+max(y_i.hat) # 1.8e-15
+
+# compare point estimates and uncertainty
+beta.save <- out.cond.pg$beta.save[,-(1:n.burn)]
+apply(beta.save,1,mean)
+coef(boosted.ipp)[-1]
+
+apply(beta.save,1,sd)
+summary(boosted.ipp)$coefficients[-1, 2]
+
+apply(beta.save,1,quantile,c(0.025,.975))
+confint(boosted.ipp)

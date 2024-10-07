@@ -5,6 +5,7 @@ library(raster)
 library(spatstat)
 library(tictoc)
 library(here)
+library(gbm3)
 
 # --- Simulate 2D data ---------------------------------------------------------
 set.seed(1234)
@@ -386,6 +387,27 @@ abline(h=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 hist(N.save[-(1:1000)],breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,lty=2,lwd=2)
+
+# --- IWLR --------------------------------------------------------------------
+boosted.ipp <- glm(y.bern~., family="binomial", weights=1E3^(1-y.bern),
+                      data = as.data.frame(X.bern))
+
+# test weights
+beta.hat <- coef(boosted.ipp)
+y_i.hat <- (tot.win.area*exp(beta.hat[1] + X.bern%*%beta.hat[-1])/(1E5*n.bg))/
+            (1 + tot.win.area*exp(beta.hat[1] + X.bern%*%beta.hat[-1])/(1E5*n.bg))
+max(y_i.hat) # 1.8e-15
+
+# compare point estimates and uncertainty
+beta.save <- out.cond.pg$beta.save[,-(1:n.burn)]
+apply(beta.save,1,mean)
+coef(boosted.ipp)[-1]
+
+apply(beta.save,1,sd)
+summary(boosted.ipp)$coefficients[-1, 2]
+
+apply(beta.save,1,quantile,c(0.025,.975))
+confint(boosted.ipp)
 
 # --- PPD of lambda full area --------------------------------------------------
 # idx.sm=seq(1,m,2)

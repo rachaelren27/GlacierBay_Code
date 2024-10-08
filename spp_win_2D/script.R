@@ -216,12 +216,9 @@ X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
-w <- c()
-for(i in 1:length(y.bern)){
-  w[i] <- ifelse(y.bern[i] == 0, 10000, 1)
-}
+w <- 10^(1-y.bern)
 tic()
-beta.save.pg <- polya_gamma(y.bern, X.pg,
+beta.save.pg <- polya_gamma(y.bern, X.pg, w,
                             mu.beta, sigma.beta, 100000)
 toc() # 236 sec
 
@@ -389,7 +386,7 @@ hist(N.save[-(1:1000)],breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,lty=2,lwd=2)
 
 # --- IWLR --------------------------------------------------------------------
-boosted.ipp <- glm(y.bern~., family="binomial", weights=1E3^(1-y.bern),
+boosted.ipp <- glm(y.bern~., family="binomial", weights=2^(1-y.bern),
                       data = as.data.frame(X.bern))
 
 # test weights

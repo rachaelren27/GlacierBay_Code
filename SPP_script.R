@@ -1,5 +1,4 @@
 setwd("/Users/rlr3795/Desktop/GlacierBay_Project")
-load(here("GlacierBay_Code", "SPP_script.RData"))
 
 library(sf)
 library(here)
@@ -19,6 +18,8 @@ library(pgdraw)
 library(coda)
 library(parallel)
 library(viridis)
+
+load(here("GlacierBay_Code", "SPP_script.RData"))
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -313,12 +314,13 @@ source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
+w <- 2^(1-y.binary)
 tic()
-out.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, n.mcmc, n.cores)
+out.pg <- polya_gamma(y.binary, X.pg, w, mu.beta, sigma.beta, 100000)
 toc() # ~ 18 min
   
 # posterior summary
-beta.save.pg <- out.pg$beta[,-(1:1000)] # discard burn-in
+beta.save.pg <- out.pg$beta # discard burn-in
 
 plot(beta.save.pg[2,], type = "l")
 plot(beta.save.pg[3,], type = "l")
@@ -352,7 +354,7 @@ dev.off()
 # plot(x = x, y = dgamma(x,1000,1), type = "l")
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-beta.save <- out.cond.pg$beta.save
+beta.save <- out.pg$beta[-1,]
 # theta.save <- rep(0,n.mcmc)
 lam.int.save <- rep(0, n.mcmc)
 
@@ -362,14 +364,14 @@ for(k in 1:n.mcmc){
   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
   # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
 };cat("\n")
-toc()
+toc() # 128 sec (~2 min)
 
 # beta.0.save.gibbs <- log(theta.save)
 # 
 # plot(beta.0.save, type ="l")
 
 # prepare for third stage
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
+out.cond.pg <- list(beta.save = out.pg$beta[-1,], 
                     # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
                     lam.int.save = lam.int.save)
@@ -397,7 +399,7 @@ vioplot(data.frame(beta.save.full),
         ylim = c(-10,5))
 abline(h = 0, lty = 2)
 
-beta.post.means <- apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
@@ -619,17 +621,18 @@ sd(N.save.pg)
 quantile(N.save.pg, c(0.025, 0.975))
 
 # --- IWLR ---------------------------------------------------------------------
-boosted.ipp <- glm(y.binary~., family="binomial", weights=1E3^(1-y.binary),
+w <- 10000^(1-y.binary)
+boosted.ipp <- glm(y.binary~., family="binomial", weights=w,
                    data = as.data.frame(X.pg[,-1]))
 
 # test weights
 beta.hat <- coef(boosted.ipp)
-y_i.hat <- (tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(1E5*n.bg))/
-  (1 + tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(1E5*n.bg))
+y_i.hat <- (tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(w*n.bg))/
+  (1 + tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(w*n.bg))
 max(y_i.hat) # 1.8e-15
 
 # compare point estimates and uncertainty
-beta.save <- out.cond.pg$beta.save[,-(1:n.burn)]
+beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
 apply(beta.save,1,mean)
 coef(boosted.ipp)[-1]
 

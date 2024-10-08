@@ -1,4 +1,4 @@
-polya_gamma <- function(y, X,
+polya_gamma <- function(y, X, w,
                         mu_beta, Sigma_beta,
                         n_mcmc){
   
@@ -34,17 +34,17 @@ polya_gamma <- function(y, X,
   ### MCMC loop
   ###
   
-  kappa=y-1/2
+  kappa=w*(y-1/2)
   # n <- nrow(X)
   
   for(q in 1:n_mcmc){
     
     ### Sample omega
-    omega_w <- pgdraw(1, X%*%beta)
+    omega <- pgdraw(w, X%*%beta)
     
     ### Sample beta
-    omega_w_X <- X * omega_w
-    V_omega=solve(crossprod(X, omega_w_X))
+    omega_X <- X * omega
+    V_omega=solve(crossprod(X, omega_X))
     m_omega=V_omega%*%(crossprod(X, kappa)+Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
     

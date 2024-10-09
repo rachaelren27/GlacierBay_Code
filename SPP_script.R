@@ -18,8 +18,11 @@ library(pgdraw)
 library(coda)
 library(parallel)
 library(viridis)
+library(foreach)
+library(doParallel)
 
 load(here("GlacierBay_Code", "SPP_script.RData"))
+set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
@@ -262,7 +265,7 @@ plot(beta.0.save, type ="l")
 
 # --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
-  n.bg <- 10000
+  n.bg <- 5000
   bg.pts <- rpoint(n.bg, win = footprint.win)
   
   ggplot() + 
@@ -318,7 +321,8 @@ w <- 2^(1-y.binary)
 tic()
 out.pg <- polya_gamma(y.binary, X.pg, w, mu.beta, sigma.beta, 100000)
 toc() # ~ 18 min
-  
+# weighted: 380 sec (~6 min)
+
 # posterior summary
 beta.save.pg <- out.pg$beta # discard burn-in
 
@@ -358,17 +362,28 @@ beta.save <- out.pg$beta[-1,]
 # theta.save <- rep(0,n.mcmc)
 lam.int.save <- rep(0, n.mcmc)
 
-tic()
-for(k in 1:n.mcmc){
-  if(k%%1000==0){cat(k," ")}
-  lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-  # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
-};cat("\n")
-toc() # 128 sec (~2 min)
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
 
-# beta.0.save.gibbs <- log(theta.save)
-# 
-# plot(beta.0.save, type ="l")
+tic()
+lam.int.save <- foreach(k = 1:n.mcmc, .combine = c) %dopar% {
+  # Compute the value
+  lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[, k]))
+  
+  return(lam.int)  # Return the computed value
+}
+toc() # 26 sec
+
+# Stop the cluster
+stopCluster(cl)
+
+# tic()
+# for(k in 1:n.mcmc){
+#   if(k%%1000==0){cat(k," ")}
+#   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
+#   # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
+# }
+# toc() # 128 sec (~2 min)
 
 # prepare for third stage
 out.cond.pg <- list(beta.save = out.pg$beta[-1,], 
@@ -621,7 +636,7 @@ sd(N.save.pg)
 quantile(N.save.pg, c(0.025, 0.975))
 
 # --- IWLR ---------------------------------------------------------------------
-w <- 10000^(1-y.binary)
+w <- 1000^(1-y.binary)
 boosted.ipp <- glm(y.binary~., family="binomial", weights=w,
                    data = as.data.frame(X.pg[,-1]))
 
@@ -634,10 +649,108 @@ max(y_i.hat) # 1.8e-15
 # compare point estimates and uncertainty
 beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
 apply(beta.save,1,mean)
-coef(boosted.ipp)[-1]
+boosted.coef <- coef(boosted.ipp)[-1]
 
 apply(beta.save,1,sd)
 summary(boosted.ipp)$coefficients[-1, 2]
 
-apply(beta.save,1,quantile,c(0.025,.975))
-confint(boosted.ipp)
+t(apply(beta.save,1,quantile,c(0.025,.975)))
+boosted.ci <- confint(boosted.ipp)
+
+boosted.iqr <- confint(boosted.ipp, level = 0.5)[-1,]
+boosted.range1 <- boosted.coef[1] + c(-1,1)*(1.5*(boosted.iqr[1,2] - boosted.iqr[1,1])/2)
+
+
+## Compare frequentist vs complete likelihood
+# beta_1
+layout(matrix(1:2,1,2))
+boxplot(
+  list(
+    "Boosted" = c(boosted.range1[1], boosted.iqr[1,1], boosted.coef[1],
+                  boosted.iqr[1,2], boosted.range1[2]),  
+    "Complete Posterior" =  out.comp.full$beta.save[1,-(1:n.burn)]
+  ),
+  names = c("Freq", "Complete"),
+  ylim = c(-3.5, -2),
+  main = expression(beta[1] * " (Bathymetry)"),
+  range = 0,
+  whisklty = 0,
+  staplelty = 0
+)
+# beta_2
+boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
+
+boxplot(
+  list(
+    "Boosted" = c(boosted.range2[1], boosted.iqr[2,1], boosted.coef[2],
+                  boosted.iqr[2,2], boosted.range2[2]),  
+    "Complete Posterior" =  out.comp.full$beta.save[2,-(1:n.burn)]
+  ),
+  names = c("Freq", "Complete"),
+  ylim = c(-8.5, -6.5),
+  main = expression(beta[2] * " (Glacier Distance)"),
+  range = 0,
+  whisklty = 0,
+  staplelty = 0
+)
+
+
+## Compare frequentist vs Bayesian PG DA
+# beta_1
+layout(matrix(1:2,1,2))
+boxplot(
+  list(
+    "Boosted" = c(boosted.range1[1], boosted.iqr[1,1], boosted.coef[1],
+                  boosted.iqr[1,2], boosted.range1[2]),  
+    "Complete Posterior" =  out.pg$beta[2,-(1:n.burn)] 
+  ),
+  names = c("Freq", "PG DA"),
+  ylim = c(-3.5, -2),
+  main = expression(beta[1] * " (Bathymetry)"),
+  range = 0,
+  whisklty = 0,
+  staplelty = 0
+)
+# beta_2
+boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
+
+boxplot(
+  list(
+    "Boosted" = c(boosted.range2[1], boosted.iqr[2,1], boosted.coef[2],
+                  boosted.iqr[2,2], boosted.range2[2]),  
+    "Complete Posterior" =  out.pg$beta[3,-(1:n.burn)]
+  ),
+  names = c("Freq", "PG DA"),
+  ylim = c(-8.5, -6.5),
+  main = expression(beta[2] * " (Glacier Distance)"),
+  range = 0,
+  whisklty = 0,
+  staplelty = 0
+)
+
+
+## Compare complete likelihood vs three-stage IWLR
+layout(matrix(1:2,1,2))
+boxplot(
+  list(
+    "IWLR PG DA" = out.cond.pg3$beta.save[1,-(1:n.burn)], 
+    "Complete" =  out.comp.full$beta.save[1,-(1:n.burn)]
+  ),
+  names = c("ILWR" , "Complete"),
+  ylim = c(-3.5, -2),
+  main = expression(beta[1] * " (Bathymetry)"),
+  range = 0
+)
+# beta_2
+boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
+
+boxplot(
+  list(
+    "IWLR PG DA" = out.cond.pg3$beta.save[2,-(1:n.burn)], 
+    "Complete" =  out.comp.full$beta.save[2,-(1:n.burn)]
+  ),
+  names = c("IWLR", "Complete"),
+  ylim = c(-8.5, -6.5),
+  main = expression(beta[2] * " (Glacier Distance)"),
+  range = 0
+)

@@ -265,7 +265,7 @@ plot(beta.0.save, type ="l")
 
 # --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
-  n.bg <- 5000
+  n.bg <- 50000
   bg.pts <- rpoint(n.bg, win = footprint.win)
   
   ggplot() + 
@@ -317,9 +317,10 @@ source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
-w <- 2^(1-y.binary)
+# w <- 2^(1-y.binary)
+w <- rep(1, length(y.binary))
 tic()
-out.pg <- polya_gamma(y.binary, X.pg, w, mu.beta, sigma.beta, 100000)
+out.pg <- polya_gamma(y.binary, X.pg, w, mu.beta, sigma.beta, n.mcmc)
 toc() # ~ 18 min
 # weighted: 380 sec (~6 min)
 
@@ -636,7 +637,7 @@ sd(N.save.pg)
 quantile(N.save.pg, c(0.025, 0.975))
 
 # --- IWLR ---------------------------------------------------------------------
-w <- 1000^(1-y.binary)
+w <- 5^(1-y.binary)
 boosted.ipp <- glm(y.binary~., family="binomial", weights=w,
                    data = as.data.frame(X.pg[,-1]))
 
@@ -661,7 +662,7 @@ boosted.iqr <- confint(boosted.ipp, level = 0.5)[-1,]
 boosted.range1 <- boosted.coef[1] + c(-1,1)*(1.5*(boosted.iqr[1,2] - boosted.iqr[1,1])/2)
 
 
-## Compare frequentist vs complete likelihood
+## Compare frequentist IWLR vs complete likelihood
 # beta_1
 layout(matrix(1:2,1,2))
 boxplot(
@@ -687,7 +688,7 @@ boxplot(
     "Complete Posterior" =  out.comp.full$beta.save[2,-(1:n.burn)]
   ),
   names = c("Freq", "Complete"),
-  ylim = c(-8.5, -6.5),
+  ylim = c(-8, -6.5),
   main = expression(beta[2] * " (Glacier Distance)"),
   range = 0,
   whisklty = 0,

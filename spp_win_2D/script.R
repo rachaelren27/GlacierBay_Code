@@ -11,12 +11,12 @@ library(gbm3)
 set.seed(1234)
 
 # set domain
-x.domain <- c(0,0.9)
-y.domain <- c(0,0.9)
+x.domain <- c(0,1.05)
+y.domain <- c(0,1.05)
 
 # define the coordinates for window squares
-win.length <- 0.1
-gap <- 0.1
+win.length <- 0.2 
+gap <- 0.05
 domain.length <- x.domain[2] - x.domain[1]
 coords <- expand.grid(x = seq(gap, domain.length - win.length - gap, by = win.length + gap), 
                       y = seq(gap, domain.length - win.length - gap, by = win.length + gap))
@@ -76,7 +76,7 @@ X.full[,2] <- x2
 
 # set beta
 beta <- c(2,1)
-beta.0 <- 4
+beta.0 <- 5.5
 lam.full <- exp(beta.0+X.full%*%beta)
 lam.max <- max(lam.full)
 
@@ -193,7 +193,7 @@ effectiveSize(out.cond.full$beta.save[2,]) # 463
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 10000
+n.bg <- 50000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 plot(domain)
@@ -216,10 +216,11 @@ X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(2.25, p)
-w <- 10^(1-y.bern)
+# w <- 10^(1-y.bern)
+w <- rep(1, length(y.bern))
 tic()
 beta.save.pg <- polya_gamma(y.bern, X.pg, w,
-                            mu.beta, sigma.beta, 100000)
+                            mu.beta, sigma.beta, n.mcmc)
 toc() # 236 sec
 
 beta.0.save <- beta.save.pg$beta[1,]
@@ -234,13 +235,13 @@ beta.save <- beta.save.pg$beta[2:3,]
 
 # plot(beta.save.pg$beta[1,], type = "l")
 
-plot(beta.save.pg$beta[2,], type = "l")
-abline(h=2,col=rgb(0,1,0,.8),lty=2)
-effectiveSize(beta.save.pg$beta[2,]) # 2111
-
 plot(beta.save.pg$beta[3,], type = "l")
 abline(h=1,col=rgb(0,1,0,.8),lty=2)
 effectiveSize(beta.save.pg$beta[3,]) # 2326
+
+plot(beta.save.pg$beta[2,], type = "l")
+abline(h=2,col=rgb(0,1,0,.8),lty=2)
+effectiveSize(beta.save.pg$beta[2,]) # 2111
 
 matplot(t(beta.save.pg$beta[-1,]),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
@@ -248,7 +249,7 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 # prepare for second stage
 # beta.0.precise <- rnorm(n.mcmc, mean = 3.7, sd = 1)
 out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = rnorm(n.mcmc, 0, 10),
-                    n.mcmc = 100000, n = n, ds = ds, X.full = X.win.full)
+                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
 beta.save <- beta.save.pg$beta[2:3,]
@@ -429,5 +430,3 @@ lam.l=apply(lam.save,1,quantile,.025)
 lam.ppd.df <- as.data.frame(cbind(s.full, lam.mn))
 ggplot(data = lam.ppd.df, aes(x = x, y = y, col = lam.mn)) + 
   geom_point(size = 0.5)
-
-# sample to data level

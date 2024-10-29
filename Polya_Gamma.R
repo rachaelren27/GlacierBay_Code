@@ -45,7 +45,7 @@ polya_gamma <- function(y, X, w,
     ### Sample beta
     omega_X <- X * omega
     V_omega=solve(crossprod(X, omega_X))
-    m_omega=V_omega%*%(crossprod(X, kappa)+Sigma_beta_inv_times_mu)
+    m_omega=V_omega%*%(crossprod(X, kappa) + Sigma_beta_inv_times_mu)
     beta=t(mvnfast::rmvn(1, m_omega, V_omega))
     
     ### Save Samples

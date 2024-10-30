@@ -316,7 +316,7 @@ X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
-sigma.beta <- diag(2.25, p)
+sigma.beta <- diag(10, p)
 # w <- 2^(1-y.binary)
 w <- rep(1, length(y.binary))
 tic()
@@ -357,6 +357,17 @@ dev.off()
 # plot(x = x, y = log_gamma(x), type = "l")
 # 
 # plot(x = x, y = dgamma(x,1000,1), type = "l")
+
+
+# --- PG VB --------------------------------------------------------------------
+source(here("GlacierBay_Code", "PG_VB.R"))
+
+mu.beta <- rep(0.0001, p)
+sigma.beta <- diag(100, p)
+
+tic()
+out.cond.pg.vb <- PG_VB(y.binary, X.pg, mu.beta, sigma.beta, 1000)
+toc()
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.pg$beta[-1,]

@@ -215,7 +215,16 @@ source(here("GlacierBay_Code", "Polya_Gamma.R"))
 X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
 mu.beta <- rep(0, p)
-sigma.beta <- diag(2.25, p)
+sigma.beta <- diag(10, p)
+
+# # plot beta density
+# beta = seq(-10,10,length.out = 1000)
+# beta.y = dnorm(x, sd = 100)
+# # plot(x = beta, y = beta.y , type = "l")
+# 
+# p <- exp(beta)/(1 + exp(beta))
+# plot(x = p, y = beta.y, type = "l")
+
 # w <- 10^(1-y.bern)
 w <- rep(1, length(y.bern))
 tic()

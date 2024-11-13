@@ -7,9 +7,10 @@ library(tictoc)
 library(here)
 library(gbm3)
 
-# --- Simulate 2D data ---------------------------------------------------------
+load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
 set.seed(1234)
 
+# --- Simulate 2D data ---------------------------------------------------------
 # set domain
 x.domain <- c(0,1.05)
 y.domain <- c(0,1.05)
@@ -259,6 +260,37 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 # beta.0.precise <- rnorm(n.mcmc, mean = 3.7, sd = 1)
 out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = rnorm(n.mcmc, 0, 10),
                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
+
+
+# --- PG VB (CAVI) -------------------------------------------------------------
+source(here("GlacierBay_Code", "PG_VB.R"))
+
+mu.beta <- rep(0.0001, p)
+sigma.beta <- diag(100, p)
+
+n.iter <- 500
+
+tic()
+out.cond.pg.vb <- PG_VB(y.bern, X.pg, mu.beta, sigma.beta, n.iter)
+toc()
+
+sigma.beta.vb <- matrix(nrow = n.iter, ncol = 2)
+for(i in 1:n.iter){
+  V_save <- out.cond.pg.vb$V_save[[i]]
+  sigma.beta.vb[i,1] <- V_save[2,2]
+  sigma.beta.vb[i,2] <- V_save[3,3]
+}
+plot(sigma.beta.vb[,1])
+plot(sigma.beta.vb[,2])
+
+mu.beta.vb <- out.cond.pg.vb$m_save[-1,n.iter]
+sigma.beta.vb <- out.cond.pg.vb$V_save[[n.iter]][-1,-1]
+
+# samples from VB 
+beta.vb <- mvnfast::rmvn(n.mcmc, mu.beta.vb, sigma.beta.vb)
+
+hist(beta.vb[,1])
+hist(beta.vb[,2])
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
 beta.save <- beta.save.pg$beta[2:3,]

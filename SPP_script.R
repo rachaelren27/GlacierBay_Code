@@ -110,6 +110,7 @@ full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
 
 cor(na.omit(values(bath.rast.survey)), full.glac.dist[,1]) # -0.183
 
+
 # --- Calculate areas ----------------------------------------------------------
 tot.area <- area.owin(survey.win)
 tot.win.area <- area.owin(footprint.win)
@@ -310,6 +311,7 @@ out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]),
                       # beta.0.save = out.cond.full$beta.0.save[1:50000],
                       n.mcmc = 50000, n = n, ds = ds, X.full = X.win.full)
 
+
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
 
@@ -318,9 +320,9 @@ p <- ncol(X.pg)
 mu.beta <- rep(0, p)
 sigma.beta <- diag(10, p)
 # w <- 2^(1-y.binary)
-w <- rep(1, length(y.binary))
+# w <- rep(1, length(y.binary))
 tic()
-out.pg <- polya_gamma(y.binary, X.pg, w, mu.beta, sigma.beta, n.mcmc)
+out.pg <- polya_gamma(y.binary, X.pg, mu.beta, sigma.beta, n.mcmc)
 toc() # ~ 18 min
 # weighted: 380 sec (~6 min)
 
@@ -365,9 +367,15 @@ source(here("GlacierBay_Code", "PG_VB.R"))
 mu.beta <- rep(0.0001, p)
 sigma.beta <- diag(100, p)
 
+# tic()
+# out.cond.pg.vb <- PG_VB(y.binary, X.pg, mu.beta, sigma.beta, 1000)
+# toc()
+
+prior <- list(Sigma = sigma.beta, mu = mu.beta)
 tic()
-out.cond.pg.vb <- PG_VB(y.binary, X.pg, mu.beta, sigma.beta, 1000)
-toc()
+out.pg.vb <- logit_CAVI(X.pg, y.binary, prior, tol = 0.001)
+toc() # 1284 iterations, 5.5 sec
+
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.pg$beta[-1,]
@@ -570,8 +578,8 @@ n <- nrow(seal.mat)
 tic()
 for(k in 1:n.mcmc){
   if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=out.cond.2.full$beta.0.save[k]
-  beta.tmp=out.cond.2.full$beta.save[,k]
+  beta.0.tmp=out.cond.pg3$beta.0.save[k]
+  beta.tmp=out.cond.pg3$beta.save[,k]
   lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
   N.save[k]=n+rpois(1,lam.nowin.int)
 };cat("\n")
@@ -591,61 +599,9 @@ sd(N.save)
 quantile(N.save, c(0.025, 0.975))
 
 
-# num quad samples
-N.save=rep(0,n.mcmc)
-
-X.nowin.full <- X.full[-win.idx,]
-n <- nrow(seal.mat)
-
-tic()
-for(k in 1:n.mcmc){
-  if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=out.cond.2.full$beta.0.save[k]
-  beta.tmp=out.cond.2.full$beta.save[,k]
-  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
-  N.save[k]=n+rpois(1,lam.nowin.int)
-};cat("\n")
-toc()
-
-par(mfrow = c(1,1))
-
-# discard burn-in
-N.save <- N.save[-(1:n.burn)]
-
-plot(N.save,type="l")
-hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
-
-# posterior summary
-mean(N.save)
-sd(N.save)
-quantile(N.save, c(0.025, 0.975))
+# --- Simulate seal realizations -----------------------------------------------
 
 
-# polya-gamma samples
-N.save.pg=rep(0,n.mcmc)
-
-tic()
-for(k in 1:n.mcmc){
-  if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=out.cond.2.full.pg$beta.0.save[k]
-  beta.tmp=out.cond.2.full.pg$beta.save[,k]
-  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
-  N.save.pg[k]=n+rpois(1,lam.nowin.int)
-};cat("\n")
-toc() # ~ 2min
-
-par(mfrow = c(1,1))
-
-# discard burn-in
-N.save.pg <- N.save.pg[-(1:n.burn)]
-
-plot(N.save.pg,type="l")
-hist(N.save.pg,breaks=50,prob=TRUE,main="",xlab="N")
-
-# posterior summary
-mean(N.save.pg)
-sd(N.save.pg)
-quantile(N.save.pg, c(0.025, 0.975))
 
 # --- IWLR ---------------------------------------------------------------------
 w <- 5^(1-y.binary)

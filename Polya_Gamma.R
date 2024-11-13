@@ -1,4 +1,4 @@
-polya_gamma <- function(y, X, w,
+polya_gamma <- function(y, X,
                         mu_beta, Sigma_beta,
                         n_mcmc){
   
@@ -6,16 +6,14 @@ polya_gamma <- function(y, X, w,
   ### Packages
   ###
   
-  # library(BayesLogit)
-  # library(Boom)
   require(pgdraw)
   
   ###
   ### Loop Variables
   ### 
   
-  Sigma_beta_inv=solve(Sigma_beta)
-  Sigma_beta_inv_times_mu=Sigma_beta_inv%*%mu_beta
+  P <- solve(Sigma_beta)
+  Pmu  <- c(P%*%mu_beta)
   
   ###
   ### Starting Values 
@@ -34,19 +32,24 @@ polya_gamma <- function(y, X, w,
   ### MCMC loop
   ###
   
-  kappa=w*(y-1/2)
+  kappa=(y-0.5)
   # n <- nrow(X)
   
   for(q in 1:n_mcmc){
     
     ### Sample omega
-    omega <- pgdraw(w, X%*%beta)
+    
+    omega <- pgdraw(1, tcrossprod(X, t(beta)))
     
     ### Sample beta
-    omega_X <- X * omega
-    V_omega=solve(crossprod(X, omega_X))
-    m_omega=V_omega%*%(crossprod(X, kappa) + Sigma_beta_inv_times_mu)
-    beta=t(mvnfast::rmvn(1, m_omega, V_omega))
+    # omega_X <- X * omega
+    # V_omega=solve(crossprod(X, omega_X))
+    # m_omega=V_omega%*%(crossprod(X, kappa) + Sigma_beta_inv_times_mu)
+    
+    P_vb <- crossprod(X*omega,X) + P
+    Sigma <- solve(P_vb) 
+    mu <- Sigma %*% (crossprod(X,kappa) + Pmu)
+    beta=t(mvnfast::rmvn(1, mu, Sigma))
     
     ### Save Samples
     beta_save[,q]=beta

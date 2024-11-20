@@ -77,7 +77,7 @@ X.full[,2] <- x2
 
 # set beta
 beta <- c(2,1)
-beta.0 <- 5.5
+beta.0 <- 4
 lam.full <- exp(beta.0+X.full%*%beta)
 lam.max <- max(lam.full)
 
@@ -94,7 +94,7 @@ ggplot(data = full.df, aes(x = x, y = y, col = lam.full)) +
 # create full raster
 full.df <- full.df %>% rename(z = lam.full)
 full.raster <- rasterFromXYZ(full.df)
-plot(full.raster)
+plot(full.raster, color = viridis(100))
 
 # simulate observed points
 M=rpois(1, lam.max) 
@@ -114,6 +114,7 @@ N=nrow(s.obs) # 218
 superpop.df <- as.data.frame(cbind(x.superpop, y.superpop, lam.superpop))
 ggplot(data = superpop.df, aes(x = x.superpop, y = y.superpop, col = lam.superpop)) + 
   geom_point(size = 0.5)
+
 
 # --- Get windowed data --------------------------------------------------------
 obs.win <- inside.owin(s.obs[,1], s.obs[,2], combined.window)
@@ -164,19 +165,20 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# posterior for N
-N.comp.save <- rep(0, n.mcmc - n.burn)
+# # posterior for N
+# N.comp.save <- rep(0, n.mcmc - n.burn)
+# 
+# for(k in 1:(n.mcmc - n.burn)){
+#   if(k%%10000==0){cat(k," ")}
+#   beta.0.tmp=beta.0.save[k]
+#   beta.tmp=beta.save[,k]
+#   lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
+#   N.comp.save[k]=n+rpois(1,lam.nowin.int)
+# };cat("\n")
+# 
+# hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
+# abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
-for(k in 1:(n.mcmc - n.burn)){
-  if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=beta.0.save[k]
-  beta.tmp=beta.save[,k]
-  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
-  N.comp.save[k]=n+rpois(1,lam.nowin.int)
-};cat("\n")
-
-hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
-abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
@@ -191,6 +193,7 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 effectiveSize(out.cond.full$beta.save[1,]) # 407
 effectiveSize(out.cond.full$beta.save[2,]) # 463
+
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
@@ -211,11 +214,13 @@ bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
 out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
                           iter = 100000, chains = 1)
 
+
+
 # --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
-mu.beta <- rep(0, p)
+mu.beta <- c(-5,0,0)
 sigma.beta <- diag(10, p)
 
 # # plot beta density
@@ -227,9 +232,9 @@ sigma.beta <- diag(10, p)
 # plot(x = p, y = beta.y, type = "l")
 
 # w <- 10^(1-y.bern)
-w <- rep(1, length(y.bern))
+# w <- rep(1, length(y.bern))
 tic()
-beta.save.pg <- polya_gamma(y.bern, X.pg, w,
+beta.save.pg <- polya_gamma(y.bern, X.pg,
                             mu.beta, sigma.beta, n.mcmc)
 toc() # 236 sec
 
@@ -291,6 +296,7 @@ beta.vb <- mvnfast::rmvn(n.mcmc, mu.beta.vb, sigma.beta.vb)
 
 hist(beta.vb[,1])
 hist(beta.vb[,2])
+
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
 beta.save <- beta.save.pg$beta[2:3,]
@@ -385,10 +391,12 @@ effectiveSize(beta.0.save) # 777
 effectiveSize(beta.save[1,]) # 735
 effectiveSize(beta.save[2,]) # 744
 
+
+
 # --- Compare Marginal Posteriors ----------------------------------------------
 # pdf("comp_marginals.pdf", width = 14)
 
-out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
+# out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 
 layout(matrix(1:3,1,3))
 hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
@@ -471,3 +479,75 @@ lam.l=apply(lam.save,1,quantile,.025)
 lam.ppd.df <- as.data.frame(cbind(s.full, lam.mn))
 ggplot(data = lam.ppd.df, aes(x = x, y = y, col = lam.mn)) + 
   geom_point(size = 0.5)
+
+
+
+# --- Posterior Intensity Function ---------------------------------------------
+beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+beta.save.full <- cbind(beta.0.save, t(beta.save))
+
+# posterior mean heat map
+beta.post.means <- apply(beta.save.full,2,mean)
+lam.full <- exp(beta.post.means[1] + X.full%*%beta.post.means[-1])
+lam.full.df <- as.data.frame(cbind(s.full, lam.full))
+lam.full.rast <- rasterFromXYZ(lam.full.df)
+
+# # get cell with highest intensity
+# lam.max.s <- lam.full.df[which(lam.full.df[,3] == max(lam.full.df[,3])),][-3]
+
+# plot
+plot(lam.full.rast, col = viridis(100))
+
+
+# --- Simulating realizations --------------------------------------------------
+lam.max <- max(lam.full)
+M <- rpois(1, lam.max)
+x.superpop <- runif(M, x.domain[1], x.domain[2])
+y.superpop <- runif(M, y.domain[1], y.domain[2])
+s.superpop <- cbind(x.superpop, y.superpop)
+
+superpop.nonwin <- !inside.owin(s.superpop[,1], s.superpop[,2], combined.window)
+s.superpop.nonwin <- cbind(x = s.superpop[,1], s.superpop[,2])[which(superpop.nonwin == TRUE),]
+
+# prepare X matrix
+# superpop.full.idx <- cellFromXY(bath.rast.survey, s.superpop.nonwin)
+# row.counts <- table(factor(superpop.full.idx, levels = 1:length(bath.rast.survey)))
+# bath.full <- cbind(values(bath.rast.survey), row.counts)
+# bath <- na.omit(bath.full)
+# X.full <- cbind(bath, glac.dist)
+# superpop.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
+# X.full <- scale(X.full[,-2])
+# X.superpop <- X.full[superpop.idx,]
+# s.superpop <- s.superpop.nonwin[superpop.idx,]
+# M0 <- nrow(X.superpop)
+
+# thin superpop
+lam.superpop.nonwin = exp(beta.post.means[1] + s.superpop.nonwin%*%beta.post.means[-1])
+M0 <- nrow(s.superpop.nonwin)
+
+obs.idx=rbinom(M0,1,lam.superpop.nonwin /lam.max)==1
+s.pred=s.superpop.nonwin[obs.idx,] # total observed points 
+# X.obs=X.superpop.nonwin[obs.idx,] 
+lam.obs <- lam.superpop.nonwin[obs.idx]
+N0.pred = nrow(s.pred)
+
+col_gradient <- colorRampPalette(c("blue", "red"))
+point_colors <- col_gradient(100)[cut(lam.obs, breaks = 100, labels = FALSE)]
+plot(domain)
+plot(combined.window, add = TRUE)
+points(x = s.pred[,1], y = s.pred[,2], pch = 19, cex = 0.5, col = point_colors)
+points(x = s.win[,1], y = s.win[,2], pch = 19, cex = 0.5)
+
+# compare with actual simulated data
+par(mfrow = c(1,2))
+
+plot(domain, main = "Posterior Realization")
+plot(combined.window, add = TRUE)
+points(x = s.pred[,1], y = s.pred[,2], pch = 19, cex = 0.5)
+points(x = s.win[,1], y = s.win[,2], pch = 19, cex = 0.5, col = 2)
+
+plot(domain, main = "Data")
+plot(combined.window, add = TRUE)
+points(s.obs[,1], s.obs[,2], col = factor(obs.win), pch = 19, cex = 0.5)
+

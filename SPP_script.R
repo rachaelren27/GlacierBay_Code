@@ -21,7 +21,7 @@ library(viridis)
 library(foreach)
 library(doParallel)
 
-load(here("GlacierBay_Code", "SPP_script.RData"))
+load(here("SPP_script.RData"))
 set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
@@ -77,13 +77,20 @@ ggplot() +
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-# crop using survey boundary
+## crop using survey boundary
 bath.rast.survey <- raster::crop(bath.rast, extent(survey.poly.mat))
 bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
-# length: 1619618
+# # remove NAs
+# s.bath.rast <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
+# bath.rast.df <- data.frame(x = s.bath.rast[,1], y = s.bath.rast[,2],
+#                            z = na.omit(values(bath.rast.survey)))
+# bath.rast.survey.noNA <- rasterFromXYZ(bath.rast.df)
+# extent(bath.rast.survey.noNA) <- extent(survey.poly.mat)
 
+# s.bath.rast.na <- xyFromCell(bath.rast.survey, which(is.na(values(bath.rast.survey))))
 plot(bath.rast.survey)
 plot(survey.poly, add = TRUE)
+# points(x = s.bath.rast.na[,1], y = s.bath.rast.na[,2])
 
 # calculate distance from southern boundary (glacier)
 ggplot() + 
@@ -134,18 +141,18 @@ ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
 # --- Set X matrices -----------------------------------------------------------
 glac.dist <- full.glac.dist[,1]
 
-seal.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
-row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
-seal.idx <- c()
-for(i in 1:nrow(X.full)){
-  if(X.full[i,2] != 0){
-    seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
-  }
-}
-X.full <- scale(X.full[,-2])
+seal.idx <- cellFromXY(bath.rast.survey, seal.mat)
+# row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
+# bath.full <- cbind(values(bath.rast.survey), row.counts)
+# bath <- na.omit(bath.full)
+# X.full <- cbind(bath, glac.dist)
+# seal.idx <- c()
+# for(i in 1:nrow(X.full)){
+#   if(X.full[i,2] != 0){
+#     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
+#   }
+# }
+# X.full <- scale(X.full[,-2])
 
 tic()
 win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
@@ -724,7 +731,7 @@ boxplot(
 # --- Posterior Intensity Function ---------------------------------------------
 beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
 beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
-beta.save.full <- c(beta.0.save, beta.save)
+beta.save.full <- cbind(beta.0.save, t(beta.save))
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
@@ -782,47 +789,51 @@ dev.off()
 # X.full <- scale(X.full[,-2])
 
 lam.max <- max(lam.full)
-M <- rpois(1, lam.max)
+M <- rpois(1, area.owin(survey.win)*lam.max)
 s.superpop.full <- rpoint(M, win = survey.win)
 
-tic()
 superpop.nonwin <- !inside.owin(s.superpop.full$x, s.superpop.full$y, footprint.win)
-toc() # ~ 6.2 min
 s.superpop.nonwin <- cbind(x = s.superpop.full$x, s.superpop.full$y)[which(superpop.nonwin == TRUE),]
+M0 <- nrow(s.superpop.nonwin)
 
 # prepare X matrix
-superpop.full.idx <- cellFromXY(bath.rast.survey, s.superpop.nonwin)
-row.counts <- table(factor(superpop.full.idx, levels = 1:length(bath.rast.survey)))
+superpop.nonwin.idx.full <- cellFromXY(bath.rast.survey, s.superpop.nonwin)
+row.counts <- table(factor(superpop.nonwin.idx.full, levels = 1:length(bath.rast.survey)))
 bath.full <- cbind(values(bath.rast.survey), row.counts)
 bath <- na.omit(bath.full)
 X.full <- cbind(bath, glac.dist)
-superpop.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
+superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
 X.full <- scale(X.full[,-2])
-X.superpop <- X.full[superpop.idx,]
-s.superpop <- s.superpop.nonwin[superpop.idx,]
-M0 <- nrow(X.superpop)
+X.superpop.nonwin <- X.full[superpop.nonwin.idx,]
+M0 <- nrow(X.superpop.nonwin)
 
 # thin superpop
-lam.superpop=exp(beta.post.means[1] + X.superpop%*%beta.post.means[-1])
+lam.superpop.nonwin=exp(beta.post.means[1] + X.superpop.nonwin%*%beta.post.means[-1])
+# lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
 
-obs.idx=rbinom(M0,1,lam.superpop/lam.max)==1
-s.obs=s.superpop[obs.idx,] # total observed points 
-X.obs=X.superpop[obs.idx,] 
-lam.obs <- lam.superpop[obs.idx]
-N=nrow(s.obs)
+superpop.nonwin.idx <- cellFromXY(lam.full.rast, s.superpop.nonwin)
+lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
+lam.superpop.nonwin.mat <- na.omit(cbind(s.superpop.nonwin, lam.superpop.nonwin))
+lam.superpop.nonwin.df <- as.data.frame(lam.superpop.nonwin.mat)
+colnames(lam.superpop.nonwin.df) <- c("x", "y", "fill")
 
-idx.samp <- sample(1:nrow(s.obs), 1000)
+obs.idx=rbinom(M0,1,lam.superpop.nonwin.mat[,3]/lam.max)==1
+s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points 
+lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
+N0.pred=nrow(s.obs)
+
+pdf("simulate_08132007.pdf")
 ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) + 
-  geom_point(aes(x = s.obs[1:100,1], y = s.obs[1:100,2], color = lam.obs[1:100]),
-             size = 0.5)
-
-idx.samp <- sample(1:nrow(s.full), 1000)
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) + 
-  geom_point(aes(x = s.full[idx.samp,1], y = s.full[idx.samp,2],
-                 color = lam.full[idx.samp]),
-             size = 0.5)
+  # geom_sf(data = survey.poly) +
+  geom_tile(data = lam.full.df, aes(x = x, y = y, 
+                                    fill = V3), color = NA) + 
+  # geom_sf(data = footprint) + 
+  labs(fill = "lambda") +
+  geom_point(aes(x = s.obs[,1], y = s.obs[,2]),
+             size = 0.01,  color = "red") +
+  geom_sf(data = seal.locs, size = 0.01, color = "red") +
+  theme(axis.title = element_blank())
+dev.off()
+# + 
+  # geom_sf(data = seal.locs, size = 0.1, color = "red")
 

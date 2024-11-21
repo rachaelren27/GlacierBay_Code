@@ -510,18 +510,6 @@ s.superpop <- cbind(x.superpop, y.superpop)
 superpop.nonwin <- !inside.owin(s.superpop[,1], s.superpop[,2], combined.window)
 s.superpop.nonwin <- cbind(x = s.superpop[,1], s.superpop[,2])[which(superpop.nonwin == TRUE),]
 
-# prepare X matrix
-# superpop.full.idx <- cellFromXY(bath.rast.survey, s.superpop.nonwin)
-# row.counts <- table(factor(superpop.full.idx, levels = 1:length(bath.rast.survey)))
-# bath.full <- cbind(values(bath.rast.survey), row.counts)
-# bath <- na.omit(bath.full)
-# X.full <- cbind(bath, glac.dist)
-# superpop.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
-# X.full <- scale(X.full[,-2])
-# X.superpop <- X.full[superpop.idx,]
-# s.superpop <- s.superpop.nonwin[superpop.idx,]
-# M0 <- nrow(X.superpop)
-
 # thin superpop
 lam.superpop.nonwin = exp(beta.post.means[1] + s.superpop.nonwin%*%beta.post.means[-1])
 M0 <- nrow(s.superpop.nonwin)

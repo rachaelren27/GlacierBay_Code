@@ -409,31 +409,29 @@ RBF_kernel <- function(x, y, h){
   exp(-(1/h)*t(x - y)%*%(x - y))
 }
 
-log_grad <- function(beta, X, y, n, p, mu.beta, Sigma.beta){
-  term1 <- 0
-  for(i in 1:n){
-    exp.X.beta <- exp(t(X[i,])%*%beta)
-    term1 <- term1 + y[i]*t(X[i,]) - X[i,]*c((exp.X.beta)/(1 + exp.X.beta))
-  }
+log_grad <- function(beta, X, y, n, p, mu.beta, Sigma.beta.inv){
+  exp_X_beta <- exp(X %*% beta)
   
-  return(term1 - t(beta - mu.beta)%*%solve(Sigma.beta))
+  logit <- exp_X_beta / (1 + exp_X_beta)
+  
+  term1 <- t(X) %*% (y - logit)
+  
+  return(t(term1) - t(beta - mu.beta)%*%Sigma.beta.inv)
 }
 
-RBF_kernel_grad <- function(x, y, h){
-  2*(x - y)*exp(-(1/h)*t(x - y)%*%(x - y))
-}
+# RBF_kernel_grad <- function(x, y, h){
+#   (-2/h)*exp(-(1/h)*t(x - y)%*%(x - y))[1,1]*(t(x) - t(y))
+# }
 
-SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta, epsilon){
+SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta.inv, epsilon){
   n.particles <- ncol(beta.particles)
   n <- length(y)
   p <- ncol(X)
   
   for(i in 1:n.particles){
-    pairwise_dist <- combn(ncol(beta.particles), 2, function(indices) {
-      sqrt(sum((beta.particles[, indices[1]] - beta.particles[, indices[2]])^2))
-    })
+    pairwise_dist <- as.matrix(dist(t(beta.particles)))
     
-    h <- median(pairwise_dist)^2/log(n.particles)
+    h <- (median(pairwise_dist)^2)/log(n.particles)
     
     beta.i <- beta.particles[,i]
     
@@ -441,13 +439,13 @@ SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta, epsilon){
     for(j in 1:n.particles){
       beta.j <- beta.particles[,j]
       K <- RBF_kernel(beta.j, beta.i, h)[1,1]
-      log.grad <- log_grad(beta.j, X, y, n, p, mu.beta, Sigma.beta)
-      K.grad <- RBF_kernel_grad(beta.j, beta.i, h)
+      log.grad <- log_grad(beta.j, X, y, n, p, mu.beta, Sigma.beta.inv)
+      # K.grad <- RBF_kernel_grad(beta.j, beta.i, h)
       
-      sum.term <- sum.term + K*log.grad + K.grad
+      sum.term <- sum.term + K*log.grad + (-2/h)*K*t(beta.j - beta.i)
     }
     beta.particles[,i] <- beta.particles[,i] + (epsilon/n.particles)*sum.term
-    print(paste(i, " "))
+    # print(i)
   }
   
   return(beta.particles)
@@ -458,10 +456,21 @@ beta.particles <- matrix(rep(seq(from = 0.001, by = 0.001, length.out = 10), eac
 
 mu.beta <- rep(0.001, p)
 Sigma.beta <- diag(rep(10, p))
+Sigma.beta.inv <- solve(Sigma.beta)
 
+n.iter <- 500
 tic()
-SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta, 0.01)
+for(k in 1:n.iter){
+  SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta.inv, 0.01)
+  beta.particles <- SGVD.out
+  if(k %% 10 == 0){
+    print(k)
+  }
+}
 toc()
+
+apply(SGVD.out, 1, mean)
+apply(SGVD.out, 1, sd)
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.pg$beta[-1,]

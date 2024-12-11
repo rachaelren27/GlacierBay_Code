@@ -6,18 +6,19 @@ library(spatstat)
 library(tictoc)
 library(here)
 library(gbm3)
+library(patchwork)
 
 load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
 set.seed(1234)
 
 # --- Simulate 2D data ---------------------------------------------------------
 # set domain
-x.domain <- c(0,1.05)
-y.domain <- c(0,1.05)
+x.domain <- c(0,0.9)
+y.domain <- c(0,0.9)
 
 # define the coordinates for window squares
-win.length <- 0.2 
-gap <- 0.05
+win.length <- 0.1 
+gap <- 0.1
 domain.length <- x.domain[2] - x.domain[1]
 coords <- expand.grid(x = seq(gap, domain.length - win.length - gap, by = win.length + gap), 
                       y = seq(gap, domain.length - win.length - gap, by = win.length + gap))
@@ -88,8 +89,9 @@ ggplot(data = full.df, aes(x = x, y = y, col = x)) +
 ggplot(data = full.df, aes(x = x, y = y, col = y)) + 
   geom_point(size = 0.5)
 
-ggplot(data = full.df, aes(x = x, y = y, col = lam.full)) + 
-  geom_point(size = 0.5)
+ggplot() +
+  geom_tile(data = full.df, aes(x = x, y = y, fill = lam.full)) + 
+  labs(fill = "lambda")
 
 # create full raster
 full.df <- full.df %>% rename(z = lam.full)
@@ -139,6 +141,15 @@ ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
 plot(domain)
 plot(combined.window, add = TRUE)
 points(s.obs[,1], s.obs[,2], col = factor(obs.win), pch = 19, cex = 0.5)
+
+domain.sf <- st_as_sfc(as.polygonal(domain)) %>% st_sf()
+combined.window.sf <- st_as_sfc(as.polygonal(combined.window)) %>% st_sf()
+ggplot() + 
+  geom_sf(data = domain.sf) + 
+  geom_sf(data = combined.window.sf) + 
+  geom_point(aes(x = s.win[,1], y = s.win[,2]), col = "red", size = 0.5) + 
+  # geom_point(aes(x = s.obs[-obs.win.idx,1], y = s.obs[-obs.win.idx,2]), size = 0.5) + 
+  theme(axis.title = element_blank())
 
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
@@ -434,6 +445,7 @@ abline(h=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 hist(N.save[-(1:1000)],breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,lty=2,lwd=2)
+abline(v = N0.pred + n, lty=2,lwd=2, col = "red")
 
 # --- IWLR --------------------------------------------------------------------
 boosted.ipp <- glm(y.bern~., family="binomial", weights=2^(1-y.bern),
@@ -497,12 +509,14 @@ lam.full.rast <- rasterFromXYZ(lam.full.df)
 # lam.max.s <- lam.full.df[which(lam.full.df[,3] == max(lam.full.df[,3])),][-3]
 
 # plot
-plot(lam.full.rast, col = viridis(100))
+ggplot() +
+  geom_tile(data = lam.full.df, aes(x = x, y = y, fill = lam.full)) + 
+  labs(fill = "lambda")
 
 
 # --- Simulating realizations --------------------------------------------------
 lam.max <- max(lam.full)
-M <- rpois(1, lam.max)
+M <- rpois(1, area.owin(domain)*lam.max)
 x.superpop <- runif(M, x.domain[1], x.domain[2])
 y.superpop <- runif(M, y.domain[1], y.domain[2])
 s.superpop <- cbind(x.superpop, y.superpop)
@@ -526,6 +540,24 @@ plot(domain)
 plot(combined.window, add = TRUE)
 points(x = s.pred[,1], y = s.pred[,2], pch = 19, cex = 0.5, col = point_colors)
 points(x = s.win[,1], y = s.win[,2], pch = 19, cex = 0.5)
+
+post.sim.plot <- ggplot() + 
+  geom_sf(data = domain.sf) + 
+  geom_sf(data = combined.window.sf) + 
+  geom_point(aes(x = s.win[,1], y = s.win[,2]), col = "red", size = 0.5) + 
+  geom_point(aes(x = s.pred[,1], y = s.pred[,2]), size = 0.5) + 
+  # labs(col = "lambda") + 
+  theme(axis.title = element_blank()) + 
+  theme(legend.position = "none")
+
+data.plot <- ggplot() + 
+  geom_sf(data = domain.sf) + 
+  geom_sf(data = combined.window.sf) + 
+  geom_point(aes(x = s.win[,1], y = s.win[,2]), col = "red", size = 0.5) + 
+  geom_point(aes(x = s.obs[-obs.win.idx,1], y = s.obs[-obs.win.idx,2]), size = 0.5) + 
+  theme(axis.title = element_blank())
+
+post.sim.plot + data.plot
 
 # compare with actual simulated data
 par(mfrow = c(1,2))

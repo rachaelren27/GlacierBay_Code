@@ -5,7 +5,7 @@ library(here)
 library(tidyverse)
 library(terra)
 library(raster)
-library(hilbertSimilarity)
+# library(hilbertSimilarity)
 library(geosphere)
 library(tictoc)
 library(vioplot)
@@ -77,6 +77,11 @@ ggplot() +
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
+ice.rast <- raster(here("covariates", "ice_proportions.tiff"))
+plot(ice.rast)
+
+glac.dist.rast <- raster(here("covariates", "glacier_dist.tiff"))
+
 ## crop using survey boundary
 bath.rast.survey <- raster::crop(bath.rast, extent(survey.poly.mat))
 bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
@@ -122,6 +127,7 @@ full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
 glac.dist.df <- data.frame(x = s.full[,1], y = s.full[,2],
                            z = full.glac.dist[,1])
 glac.dist.rast <- rasterFromXYZ(glac.dist.df)
+writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
 
 cor(na.omit(values(bath.rast.survey)), full.glac.dist[,1]) # -0.183
 
@@ -396,6 +402,67 @@ out.pg.vb <- logit_CAVI(X.pg, y.binary, prior, tol = 0.001)
 toc() # 1284 iterations, 5.5 sec
 
 
+# --- SVGD ---------------------------------------------------------------------
+n.particles <- 10
+
+RBF_kernel <- function(x, y, h){
+  exp(-(1/h)*t(x - y)%*%(x - y))
+}
+
+log_grad <- function(beta, X, y, n, p, mu.beta, Sigma.beta){
+  term1 <- 0
+  for(i in 1:n){
+    exp.X.beta <- exp(t(X[i,])%*%beta)
+    term1 <- term1 + y[i]*t(X[i,]) - X[i,]*c((exp.X.beta)/(1 + exp.X.beta))
+  }
+  
+  return(term1 - t(beta - mu.beta)%*%solve(Sigma.beta))
+}
+
+RBF_kernel_grad <- function(x, y, h){
+  2*(x - y)*exp(-(1/h)*t(x - y)%*%(x - y))
+}
+
+SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta, epsilon){
+  n.particles <- ncol(beta.particles)
+  n <- length(y)
+  p <- ncol(X)
+  
+  for(i in 1:n.particles){
+    pairwise_dist <- combn(ncol(beta.particles), 2, function(indices) {
+      sqrt(sum((beta.particles[, indices[1]] - beta.particles[, indices[2]])^2))
+    })
+    
+    h <- median(pairwise_dist)^2/log(n.particles)
+    
+    beta.i <- beta.particles[,i]
+    
+    sum.term <- rep(0,3)
+    for(j in 1:n.particles){
+      beta.j <- beta.particles[,j]
+      K <- RBF_kernel(beta.j, beta.i, h)[1,1]
+      log.grad <- log_grad(beta.j, X, y, n, p, mu.beta, Sigma.beta)
+      K.grad <- RBF_kernel_grad(beta.j, beta.i, h)
+      
+      sum.term <- sum.term + K*log.grad + K.grad
+    }
+    beta.particles[,i] <- beta.particles[,i] + (epsilon/n.particles)*sum.term
+    print(paste(i, " "))
+  }
+  
+  return(beta.particles)
+}
+
+beta.particles <- matrix(rep(seq(from = 0.001, by = 0.001, length.out = 10), each = 3),
+                         nrow = p, ncol = n.particles)
+
+mu.beta <- rep(0.001, p)
+Sigma.beta <- diag(rep(10, p))
+
+tic()
+SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta, 0.01)
+toc()
+
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.pg$beta[-1,]
 # theta.save <- rep(0,n.mcmc)
@@ -599,7 +666,10 @@ par(mfrow = c(1,1))
 N.save <- N.save[-(1:n.burn)]
 
 plot(N.save,type="l")
+pdf("abundance_posterior_pred.pdf")
 hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
+abline(v = 1129, lty = 2, col = "red", lwd = 2)
+dev.off()
 
 # posterior summary
 mean(N.save)
@@ -822,16 +892,16 @@ s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points
 lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
 N0.pred=nrow(s.obs)
 
-pdf("simulate_08132007.pdf")
+pdf("simulate_08132007_2.pdf")
 ggplot() + 
-  # geom_sf(data = survey.poly) +
-  geom_tile(data = lam.full.df, aes(x = x, y = y, 
-                                    fill = V3), color = NA) + 
-  # geom_sf(data = footprint) + 
-  labs(fill = "lambda") +
-  geom_point(aes(x = s.obs[,1], y = s.obs[,2]),
-             size = 0.01,  color = "red") +
-  geom_sf(data = seal.locs, size = 0.01, color = "red") +
+  geom_sf(data = survey.poly) +
+  # geom_tile(data = lam.full.df, aes(x = x, y = y, 
+                                   #  fill = V3), color = NA) + 
+  geom_sf(data = footprint) + 
+  labs(color = "lambda") +
+  geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
+             size = 0.1) +
+  geom_sf(data = seal.locs, size = 0.1, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
 # + 

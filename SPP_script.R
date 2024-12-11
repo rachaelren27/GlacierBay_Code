@@ -428,25 +428,28 @@ SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta.inv, epsilon){
   n <- length(y)
   p <- ncol(X)
   
-  for(i in 1:n.particles){
-    pairwise_dist <- as.matrix(dist(t(beta.particles)))
+  pairwise.dist <- as.matrix(dist(t(beta.particles)))
+  h <- (median(pairwise.dist)^2) / log(n.particles)
+  kernel.matrix <- exp(-pairwise.dist^2 / h)
+  
+  log.grads <- apply(beta.particles, 2, function(beta) {
+    log_grad(beta, X, y, n, p, mu.beta, Sigma.beta.inv)
+  })
+  
+  beta.updates <- matrix(0, nrow = p, ncol = n.particles)
+  
+  for (i in 1:n.particles) {
+    beta.i <- beta.particles[, i]
     
-    h <- (median(pairwise_dist)^2)/log(n.particles)
+    kernel_grads <- sweep(beta.particles, 1, beta.i, `-`) * (-2 / h) * kernel.matrix[i, ]
     
-    beta.i <- beta.particles[,i]
-    
-    sum.term <- rep(0,3)
-    for(j in 1:n.particles){
-      beta.j <- beta.particles[,j]
-      K <- RBF_kernel(beta.j, beta.i, h)[1,1]
-      log.grad <- log_grad(beta.j, X, y, n, p, mu.beta, Sigma.beta.inv)
-      # K.grad <- RBF_kernel_grad(beta.j, beta.i, h)
-      
-      sum.term <- sum.term + K*log.grad + (-2/h)*K*t(beta.j - beta.i)
-    }
-    beta.particles[,i] <- beta.particles[,i] + (epsilon/n.particles)*sum.term
-    # print(i)
+    beta_updates[, i] <- rowSums(
+      sweep(log.grads, 2, kernel.matrix[i, ], `*`) + kernel.grads
+    )
   }
+  
+  # Update particles
+  beta.particles <- beta.particles + (epsilon / n.particles) * beta.updates
   
   return(beta.particles)
 }
@@ -458,16 +461,16 @@ mu.beta <- rep(0.001, p)
 Sigma.beta <- diag(rep(10, p))
 Sigma.beta.inv <- solve(Sigma.beta)
 
-n.iter <- 500
+n.iter <- 5000
 tic()
 for(k in 1:n.iter){
-  SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta.inv, 0.01)
+  SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta.inv, 0.001)
   beta.particles <- SGVD.out
-  if(k %% 10 == 0){
+  if(k %% 100 == 0){
     print(k)
   }
 }
-toc()
+toc() # 52 sec
 
 apply(SGVD.out, 1, mean)
 apply(SGVD.out, 1, sd)

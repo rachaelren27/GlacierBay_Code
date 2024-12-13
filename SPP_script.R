@@ -419,61 +419,71 @@ log_grad <- function(beta, X, y, n, p, mu.beta, Sigma.beta.inv){
   return(t(term1) - t(beta - mu.beta)%*%Sigma.beta.inv)
 }
 
-# RBF_kernel_grad <- function(x, y, h){
-#   (-2/h)*exp(-(1/h)*t(x - y)%*%(x - y))[1,1]*(t(x) - t(y))
-# }
-
-SGVD <- function(beta.particles, X, y, mu.beta, Sigma.beta.inv, epsilon){
+SVGD_update <- function(beta.particles, X, y, mu.beta, Sigma.beta.inv, epsilon){
   n.particles <- ncol(beta.particles)
   n <- length(y)
   p <- ncol(X)
-  
+
   pairwise.dist <- as.matrix(dist(t(beta.particles)))
   h <- (median(pairwise.dist)^2) / log(n.particles)
   kernel.matrix <- exp(-pairwise.dist^2 / h)
-  
+
   log.grads <- apply(beta.particles, 2, function(beta) {
     log_grad(beta, X, y, n, p, mu.beta, Sigma.beta.inv)
   })
-  
+
   beta.updates <- matrix(0, nrow = p, ncol = n.particles)
-  
+
   for (i in 1:n.particles) {
     beta.i <- beta.particles[, i]
-    
-    kernel_grads <- sweep(beta.particles, 1, beta.i, `-`) * (-2 / h) * kernel.matrix[i, ]
-    
-    beta_updates[, i] <- rowSums(
+
+    kernel.grads <- sweep(beta.particles, 1, beta.i, `-`) * (-2 / h) * kernel.matrix[i, ]
+
+    beta.updates[, i] <- rowSums(
       sweep(log.grads, 2, kernel.matrix[i, ], `*`) + kernel.grads
     )
   }
   
-  # Update particles
   beta.particles <- beta.particles + (epsilon / n.particles) * beta.updates
-  
+
   return(beta.particles)
 }
 
-beta.particles <- matrix(rep(seq(from = 0.001, by = 0.001, length.out = 10), each = 3),
-                         nrow = p, ncol = n.particles)
+SVGD <- function(beta.init, epsilon, n.iter, X, y, mu.beta, Sigma.beta.inv){
+  SVGD.out <- list()
+  SVGD.out[[1]] <- beta.init
+  for(k in 2:n.iter){
+    beta.particles <- SVGD.out[[k-1]]
+    SVGD.out[[k]] <- SVGD_update(beta.particles, X.pg, y.binary, mu.beta,
+                                 Sigma.beta.inv, epsilon)
+    if(k %% 100 == 0){
+      print(k)
+    }
+  }
+  
+  return(SVGD.out)
+}
+
+beta.init <- matrix(rep(seq(from = 0.001, by = 0.001, length.out = 10), each = 3),
+                    nrow = p, ncol = n.particles)
 
 mu.beta <- rep(0.001, p)
 Sigma.beta <- diag(rep(10, p))
 Sigma.beta.inv <- solve(Sigma.beta)
+n.iter <- 10000
 
-n.iter <- 5000
 tic()
-for(k in 1:n.iter){
-  SGVD.out <- SGVD(beta.particles, X.pg, y.binary, mu.beta, Sigma.beta.inv, 0.001)
-  beta.particles <- SGVD.out
-  if(k %% 100 == 0){
-    print(k)
-  }
-}
-toc() # 52 sec
+SVGD.out <- SVGD(beta.init, 0.001, n.iter, X.pg, y.binary, mu.beta, Sigma.beta.inv)
+toc() # 52 seconds
 
-apply(SGVD.out, 1, mean)
-apply(SGVD.out, 1, sd)
+SVGD.save <- c()
+for(k in 1:n.iter){
+  SVGD.save[k] <- SVGD.out[[k]][3,1]
+}
+plot(SVGD.save)
+
+apply(SVGD.out[[n.iter]], 1, mean)
+apply(SVGD.out[[n.iter]], 1, sd)
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.pg$beta[-1,]
@@ -487,7 +497,7 @@ tic()
 lam.int.save <- foreach(k = 1:n.mcmc, .combine = c) %dopar% {
   # Compute the value
   lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[, k]))
-  
+
   return(lam.int)  # Return the computed value
 }
 toc() # 26 sec
@@ -496,15 +506,15 @@ toc() # 26 sec
 stopCluster(cl)
 
 # tic()
-# for(k in 1:n.mcmc){
+# for(k in 1:n.particles){
 #   if(k%%1000==0){cat(k," ")}
 #   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
 #   # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
 # }
 # toc() # 128 sec (~2 min)
-
+# 
 # prepare for third stage
-out.cond.pg <- list(beta.save = out.pg$beta[-1,], 
+out.cond.pg2 <- list(beta.save = out.pg$beta[-1,], 
                     # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
                     lam.int.save = lam.int.save)
@@ -512,7 +522,7 @@ out.cond.pg <- list(beta.save = out.pg$beta[-1,],
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
 tic()
-out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
+out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg2)
 toc() # ~ 1 sec
 
 # discard burn-in

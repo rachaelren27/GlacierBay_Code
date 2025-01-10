@@ -26,23 +26,23 @@ set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
-             "nonpup_locs")
-seal.locs.20070813 <- st_read(dsn = path, layer = "JHI_20070813_nonpup_locs")
+             "pup_locs")
+seal.locs.20070618 <- st_read(dsn = path, layer = "JHI_20070618_pup_locs")
 
 path <- here("NPS_data", "HARBORSEAL_2007", "footprints")
-footprint.20070813 <- st_read(dsn = path, layer = "JHI_20070813_footprint")
+footprint.20070618 <- st_read(dsn = path, layer = "JHI_20070618_footprint")
 
 path <- here("NPS_data", "HARBORSEAL_2007", "survey_polygons")
-survey.poly.20070813 <- st_read(dsn = path, layer = "JHI_20070813_surveyboundary")
+survey.poly.20070618 <- st_read(dsn = path, layer = "JHI_20070618_surveyboundary")
 
 # convert CRS
-survey.poly <- st_transform(survey.poly.20070813$geometry, 
+survey.poly <- st_transform(survey.poly.20070618$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
 
-seal.locs <- st_transform(seal.locs.20070813$geometry,
+seal.locs <- st_transform(seal.locs.20070618$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
 
-footprint <- st_transform(footprint.20070813$geometry, 
+footprint <- st_transform(footprint.20070618$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
 
 # crop footprint
@@ -58,21 +58,23 @@ footprints <- lapply(1:length(footprint), function(i) {
   if(class(footprint.mat)[1] == "list"){
     footprint.mat <- footprint.mat[[1]]
   }
-  owin(poly = data.frame(x=rev(footprint.mat[,1]),
-                         y=rev(footprint.mat[,2])))
+  owin(poly = data.frame(x=footprint.mat[,1],
+                         y=footprint.mat[,2]))
 })
 footprint.win <- do.call(union.owin, footprints)
 
 # plot
 ggplot() + 
-  geom_sf(data = survey.poly.nonwin)
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(data = as.data.frame(seal.mat), aes(x = X, y = Y), size = 0.1)
 
 
 # --- Read in covariates -------------------------------------------------------
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
+ice.rast <- raster(here("covariates", "20070618_ice_props.tif"))
 plot(ice.rast)
 
 ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
@@ -86,14 +88,15 @@ ggplot() +
   scale_fill_manual(
     values = c("TRUE" = "blue", "FALSE" = "red"),
     name = "Ice NA") # + 
-  # geom_sf(data = seal.locs, size = 0.1, col = "white") + 
-  # coord_sf(xlim = c(NA, -137.06), ylim = c(NA, 58.86))
+# geom_sf(data = seal.locs, size = 0.1, col = "white") + 
+# coord_sf(xlim = c(NA, -137.06), ylim = c(NA, 58.86))
 
-glac.dist.rast <- raster(here("covariates", "glacier_dist.tiff"))
+glac.dist.rast <- raster(here("covariates", "glacier_dist_20070618.tiff"))
 
 ## crop using survey boundary
 bath.rast.survey <- raster::crop(bath.rast, extent(survey.poly.mat))
 bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
+
 # # remove NAs
 # s.bath.rast <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
 # bath.rast.df <- data.frame(x = s.bath.rast[,1], y = s.bath.rast[,2],
@@ -148,15 +151,14 @@ tot.area <- area.owin(survey.win)
 tot.win.area <- area.owin(footprint.win)
 tot.nonwin.area <- tot.area - tot.win.area
 n.win <- length(footprint)
-ex.win <- owin(poly = data.frame(x = rev(footprint[[1]][[1]][,1]),
-                                 y = rev(footprint[[1]][[1]][,2])))
+ex.win <- owin(poly = data.frame(x = footprint[[1]][[1]][,1],
+                                 y = footprint[[1]][[1]][,2]))
 win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
 ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
-  
+
 
 # --- Set X matrices -----------------------------------------------------------
-glac.dist <- full.glac.dist[,1]
 
 seal.idx <- cellFromXY(bath.rast.survey, seal.mat)
 # row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
@@ -170,34 +172,44 @@ seal.idx <- cellFromXY(bath.rast.survey, seal.mat)
 #   }
 # }
 # X.full <- scale(X.full[,-2])
-ice.idx <- cellFromXY(ice.rast, seal.mat)
-ice.prop <- values(ice.rast)[ice.idx]
-ice.noNA.idx <- which(!is.na(ice.prop))
 
-bath.idx <- cellFromXY(bath.rast, seal.mat)
+# ice.idx <- cellFromXY(ice.rast, seal.mat)
+# ice.prop <- values(ice.rast)[ice.idx]
+# ice.noNA.idx <- which(!is.na(ice.prop))
+
+bath.idx <- cellFromXY(bath.rast.survey, seal.mat)
 glac.dist.idx <- cellFromXY(glac.dist.rast, seal.mat)
 
-X.obs <- cbind(values(ice.rast)[ice.idx],
-               values(bath.rast)[bath.idx],
-               values(glac.dist.rast)[glac.dist.idx])[ice.noNA.idx,]
+X.obs <- cbind(
+               values(bath.rast.survey)[bath.idx],
+               values(glac.dist.rast)[glac.dist.idx]) #[ice.noNA.idx,]
+X.obs <- na.omit(X.obs)
 X.obs <- scale(X.obs)
 
-seal.mat.ice <- seal.mat[ice.noNA.idx,]
+# seal.mat.ice <- seal.mat[ice.noNA.idx,]
 
 tic()
 win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
 toc() # 15 sec
 
+X.full <- cbind(na.omit(values(bath.rast.survey)),
+                na.omit(values(glac.dist.rast)))
 X.win.full <- X.full[win.idx,]
 
-X.obs <- X.full[seal.idx,]
+# X.obs <- X.full[seal.idx,]
 n <- length(seal.idx)
+
+
+ggplot() + 
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(data = as.data.frame(full.coord[win.idx,]), aes(x = x, y = y), size = 0.1)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(seal.mat.ice,X.obs,X.win.full,ds,win.area,n.mcmc,0.05,0.05)
+out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 toc() # 543.252 sec elapsed (~9 min)
 
 # discard burn-in
@@ -315,42 +327,52 @@ plot(beta.0.save, type ="l")
 
 # --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
-  n.bg <- 50000
-  bg.pts <- rpoint(n.bg, win = footprint.win)
-  
-  ggplot() + 
-    geom_sf(data = survey.poly) + 
-    geom_sf(data = footprint) + 
-    geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
-    geom_sf(data = seal.locs, size = 0.3, col = "red")
-  
-  # prepare covariates for background sample 
-  bg.mat <- cbind(bg.pts$x, bg.pts$y)
-  
-  bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
-  row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
-  bath.full <- cbind(values(bath.rast.survey), row.counts)
-  bath <- na.omit(bath.full)
-  X.full <- cbind(bath, glac.dist)
-  bg.idx <- c()
-  for(i in 1:nrow(X.full)){
-    if(X.full[i,2] != 0){
-      bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
-    }
-  }
-  # 10000 -> 9802 background points (some correspond to NA in bath raster)
-  # 50000 -> 49008 bg pts
-  X.full <- scale(X.full[,-2]) 
+n.bg <- 50000
+bg.pts <- rpoint(n.bg, win = footprint.win)
 
-X.obs <- X.full[c(seal.idx, bg.idx),] 
+ggplot() + 
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+  geom_sf(data = seal.locs, size = 0.3, col = "red")
 
-y.binary <- rep(0, n + length(bg.idx))
+# prepare covariates for background sample 
+bg.mat <- cbind(bg.pts$x, bg.pts$y)
+
+# bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
+# row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
+# bath.full <- cbind(values(bath.rast.survey), row.counts)
+# bath <- na.omit(bath.full)
+# X.full <- cbind(bath, glac.dist)
+# bg.idx <- c()
+# for(i in 1:nrow(X.full)){
+#   if(X.full[i,2] != 0){
+#     bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
+#   }
+# }
+# 10000 -> 9802 background points (some correspond to NA in bath raster)
+# 50000 -> 49008 bg pts
+# X.full <- scale(X.full[,-2]) 
+
+# X.obs <- X.full[c(seal.idx, bg.idx),] 
+
+bath.bg.idx <- cellFromXY(bath.rast.survey, bg.mat)
+glac.dist.bg.idx <- cellFromXY(glac.dist.rast, bg.mat)
+
+X.bg <- cbind(
+  values(bath.rast.survey)[bath.bg.idx],
+  values(glac.dist.rast)[glac.dist.bg.idx]) #[ice.noNA.idx,]
+X.bg <- na.omit(X.bg)
+X.obs.bg <- rbind(X.obs, X.bg)
+X.obs.bg <- scale(X.obs.bg)
+
+y.binary <- rep(0, n + nrow(X.bg))
 y.binary[1:n] <- 1
 
 bern.rsf.df <- data.frame(y = y.binary, bath = X.obs[,1], glac.dist = X.obs[,2])
 tic()
 out.bern.cond <- stan_glm(y ~ bath + glac.dist, family=binomial(link="logit"), data=bern.rsf.df,
-                 iter = 100000, chains = 1)
+                          iter = 100000, chains = 1)
 toc()
 # 9802 bg pts: 376.625 sec (~6.3 min)
 # 49008 bg pts: 2079 sec (~34.7 min)
@@ -362,11 +384,11 @@ out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]),
 
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
-X.pg <- cbind(rep(1, nrow(X.obs)), X.obs)
+X.pg <- cbind(rep(1, nrow(X.obs.bg)), X.obs.bg)
 
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 p <- ncol(X.pg)
-mu.beta <- c(-5, rep(0, p-1))
+mu.beta <- rep(0, p)
 sigma.beta <- diag(10, p)
 # w <- 2^(1-y.binary)
 # w <- rep(1, length(y.binary))
@@ -380,6 +402,7 @@ beta.save.pg <- out.pg$beta # discard burn-in
 
 par(mfrow = c(2,1))
 plot(beta.save.pg[1,], type = "l")
+plot(beta.save.pg[2,], type = "l")
 plot(beta.save.pg[3,], type = "l")
 
 # compare polya-gamma and full-conditional trace plots
@@ -471,7 +494,7 @@ tic()
 lam.int.save <- foreach(k = 1:n.mcmc, .combine = c) %dopar% {
   # Compute the value
   lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[, k]))
-
+  
   return(lam.int)  # Return the computed value
 }
 toc() # 26 sec
@@ -488,10 +511,10 @@ stopCluster(cl)
 # toc() # 128 sec (~2 min)
 # 
 # prepare for third stage
-out.cond.pg2 <- list(beta.save = out.pg$beta[-1,-(1:n.burn)], 
-                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
-                    n.mcmc = n.mcmc - n.burn, n = n, ds = ds, X.full = X.win.full,
-                    lam.int.save = lam.int.save[-(1:n.burn)])
+out.cond.pg2 <- list(beta.save = out.pg$beta[-1,], 
+                     # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
+                     lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -506,8 +529,6 @@ beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
 # trace plots
 layout(matrix(1:2,2,1))
 plot(beta.0.save,type="l")
-plot(beta.save[1,], type = "l")
-plot(beta.save[2,], type = "l")
 
 matplot(t(beta.save),lty=1,type="l")
 
@@ -603,7 +624,7 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Fit SPP using cond. output (polya-gamma stage 2) -------------------------
 tic()
-out.2.full.pg <- spp.stg2.mcmc(out.pg)
+out.cond.2.full.pg <- spp.stg2.mcmc(out.cond.pg)
 toc() # 128.9 sec (~2 min)
 
 # discard burn-in
@@ -894,7 +915,7 @@ pdf("simulate_08132007_2.pdf")
 ggplot() + 
   geom_sf(data = survey.poly) +
   # geom_tile(data = lam.full.df, aes(x = x, y = y, 
-                                   #  fill = V3), color = NA) + 
+  #  fill = V3), color = NA) + 
   geom_sf(data = footprint) + 
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
@@ -903,5 +924,5 @@ ggplot() +
   theme(axis.title = element_blank())
 dev.off()
 # + 
-  # geom_sf(data = seal.locs, size = 0.1, color = "red")
+# geom_sf(data = seal.locs, size = 0.1, color = "red")
 

@@ -22,6 +22,7 @@ spp.stg3.mcmc <- function(out){
   
   beta.0.save=rep(0,n.mcmc)
   beta.save=matrix(0,p,n.mcmc)
+  theta.lam.int.save <- rep(0, n.mcmc)
   
   # starting values
   beta=c(out$beta.save[,n.mcmc])
@@ -46,6 +47,7 @@ spp.stg3.mcmc <- function(out){
     theta.lam.int.star=theta*lam.int.star 
     
     theta.lam.int <- theta*lam.int
+    theta.lam.int.save[k] <- theta.lam.int
       
     mh.1=dpois(n,theta.lam.int.star,log=TRUE)
     mh.2=dpois(n,theta.lam.int,log=TRUE)
@@ -71,6 +73,7 @@ spp.stg3.mcmc <- function(out){
   ###  Write Output 
   ###
   
-  list(beta.save=beta.save,beta.0.save=beta.0.save,n.mcmc=n.mcmc)
+  list(beta.save=beta.save,beta.0.save=beta.0.save,n.mcmc=n.mcmc,
+       theta.lam.int.save=theta.lam.int.save)
   
 }

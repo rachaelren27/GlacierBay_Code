@@ -35,7 +35,7 @@ sig.00=10
 # a <- 0.001
 # b <- 0.001
 mu.0=rep(0,p)
-sig.0=rep(100,p)
+sig.0=rep(10,p)
 
 beta.0=log(n)-log(area)
 # theta <- exp(4)

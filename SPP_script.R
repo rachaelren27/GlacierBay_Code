@@ -58,36 +58,32 @@ footprints <- lapply(1:length(footprint), function(i) {
   if(class(footprint.mat)[1] == "list"){
     footprint.mat <- footprint.mat[[1]]
   }
-  owin(poly = data.frame(x=rev(footprint.mat[,1]),
-                         y=rev(footprint.mat[,2])))
+  owin(poly = data.frame(x=footprint.mat[,1],
+                         y=footprint.mat[,2]))
 })
 footprint.win <- do.call(union.owin, footprints)
-
-# plot
-ggplot() + 
-  geom_sf(data = survey.poly.nonwin)
 
 
 # --- Read in covariates -------------------------------------------------------
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
-plot(ice.rast)
-
-ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
-                              values(ice.rast)))
-
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) + 
-  geom_tile(data = ice.df, aes(x = x, y = y,
-                               fill = is.na(V3))) + 
-  scale_fill_manual(
-    values = c("TRUE" = "blue", "FALSE" = "red"),
-    name = "Ice NA") # + 
-  # geom_sf(data = seal.locs, size = 0.1, col = "white") + 
-  # coord_sf(xlim = c(NA, -137.06), ylim = c(NA, 58.86))
+# ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
+# plot(ice.rast)
+# 
+# ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
+#                               values(ice.rast)))
+# 
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_sf(data = footprint) + 
+#   geom_tile(data = ice.df, aes(x = x, y = y,
+#                                fill = is.na(V3))) + 
+#   scale_fill_manual(
+#     values = c("TRUE" = "blue", "FALSE" = "red"),
+#     name = "Ice NA") # + 
+#   # geom_sf(data = seal.locs, size = 0.1, col = "white") + 
+#   # coord_sf(xlim = c(NA, -137.06), ylim = c(NA, 58.86))
 
 glac.dist.rast <- raster(here("covariates", "glacier_dist.tiff"))
 
@@ -126,7 +122,7 @@ ggplot() +
 
 
 seal.mat <- as.matrix(st_coordinates(seal.locs))
-bath.rast <- na.omit(values(bath.rast.survey))
+# bath.rast <- na.omit(values(bath.rast.survey))
 
 seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
 
@@ -148,56 +144,57 @@ tot.area <- area.owin(survey.win)
 tot.win.area <- area.owin(footprint.win)
 tot.nonwin.area <- tot.area - tot.win.area
 n.win <- length(footprint)
-ex.win <- owin(poly = data.frame(x = rev(footprint[[1]][[1]][,1]),
-                                 y = rev(footprint[[1]][[1]][,2])))
+ex.win <- owin(poly = data.frame(x = footprint[[1]][[1]][,1],
+                                 y = footprint[[1]][[1]][,2]))
 win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
 ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
   
 
 # --- Set X matrices -----------------------------------------------------------
-glac.dist <- full.glac.dist[,1]
+# glac.dist <- full.glac.dist[,1]
+glac.dist <- values(glac.dist.rast)x
 
 seal.idx <- cellFromXY(bath.rast.survey, seal.mat)
-# row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
-# bath.full <- cbind(values(bath.rast.survey), row.counts)
-# bath <- na.omit(bath.full)
-# X.full <- cbind(bath, glac.dist)
-# seal.idx <- c()
-# for(i in 1:nrow(X.full)){
-#   if(X.full[i,2] != 0){
-#     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
-#   }
-# }
-# X.full <- scale(X.full[,-2])
-ice.idx <- cellFromXY(ice.rast, seal.mat)
-ice.prop <- values(ice.rast)[ice.idx]
-ice.noNA.idx <- which(!is.na(ice.prop))
+row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
+bath.full <- cbind(values(bath.rast.survey), row.counts)
+bath <- na.omit(bath.full)
+X.full <- cbind(bath, glac.dist)
+seal.idx <- c()
+for(i in 1:nrow(X.full)){
+  if(X.full[i,2] != 0){
+    seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
+  }
+}
+X.full <- scale(X.full[,-2])
+# ice.idx <- cellFromXY(ice.rast, seal.mat)
+# ice.prop <- values(ice.rast)[ice.idx]
+# ice.noNA.idx <- which(!is.na(ice.prop))
 
-bath.idx <- cellFromXY(bath.rast, seal.mat)
-glac.dist.idx <- cellFromXY(glac.dist.rast, seal.mat)
+# bath.idx <- cellFromXY(bath.rast, seal.mat)
+# glac.dist.idx <- cellFromXY(glac.dist.rast, seal.mat)
+# 
+# X.obs <- cbind(# values(ice.rast)[ice.idx],
+#                values(bath.rast)[bath.idx],
+#                values(glac.dist.rast)[glac.dist.idx])# [ice.noNA.idx,]
+# X.obs <- scale(X.obs)
 
-X.obs <- cbind(values(ice.rast)[ice.idx],
-               values(bath.rast)[bath.idx],
-               values(glac.dist.rast)[glac.dist.idx])[ice.noNA.idx,]
-X.obs <- scale(X.obs)
+# seal.mat.ice <- seal.mat[ice.noNA.idx,]
 
-seal.mat.ice <- seal.mat[ice.noNA.idx,]
+win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win)) # 15 sec
 
-tic()
-win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
-toc() # 15 sec
-
+# X.full <- cbind(na.omit(values(bath.rast.survey)),
+#                 na.omit(values(glac.dist.rast)))
 X.win.full <- X.full[win.idx,]
 
 X.obs <- X.full[seal.idx,]
-n <- length(seal.idx)
+n <- nrow(X.obs)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(seal.mat.ice,X.obs,X.win.full,ds,win.area,n.mcmc,0.05,0.05)
+out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 toc() # 543.252 sec elapsed (~9 min)
 
 # discard burn-in

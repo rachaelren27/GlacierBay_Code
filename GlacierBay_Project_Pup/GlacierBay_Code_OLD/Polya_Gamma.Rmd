@@ -1,0 +1,84 @@
+---
+title: "Polya Gamma"
+output: html_document
+date: "2024-07-19"
+---
+
+# Model Statement
+
+Suppose we have the following logistic regression model: \begin{align}
+& y_i \sim \text{Bernoulli}(N_i, \psi_i) && \text{ for $i=1,\dots,n$,} \\
+& \text{logit}(\psi_i)=\boldsymbol{x}_i'\boldsymbol{\beta}, \\
+& \boldsymbol{\beta} \sim \mathcal{N}(\boldsymbol{\mu}_{\beta}, \boldsymbol{\Sigma}_{\beta}).
+\end{align} Using Pólya-Gamma data augmentation (Polson et al. 2013), the posterior distribution for $\boldsymbol{\beta}$ is \begin{align}
+& \boldsymbol{\beta}|\boldsymbol{y}, \boldsymbol{\omega} \sim \mathcal{N}(\boldsymbol{m}_{\omega}, \boldsymbol{V}_{\omega}) \\
+& \boldsymbol{V}_{\omega} = \left(\boldsymbol{X}'\boldsymbol{\Omega}\boldsymbol{X}+\boldsymbol{\Sigma}_{\beta}^{-1}\right)^{-1},\\
+& \boldsymbol{m}_{\omega} = \boldsymbol{V}_{\omega}\left(\boldsymbol{X}'\boldsymbol{\kappa}+\boldsymbol{\Sigma}_{\beta}^{-1}\boldsymbol{\mu}_{\beta}\right),
+\end{align} where $\boldsymbol{\kappa}=(y_1-1/2,\dots,y_N-1/2)$ and $\boldsymbol{\Omega}=\text{diag}(\omega_1,\dots,\omega_n)$. The posterior distribution for the auxillary variables, $\boldsymbol{\omega}$, remain unchanged, $\omega_i|\boldsymbol{\beta} \sim \text{PG}(1, \boldsymbol{x}_i'\boldsymbol{\beta})$
+
+## Simulation Check
+
+```{r, Simulation Check}
+
+###
+### packages
+###
+
+library(ggridges)
+library(tidyverse)
+
+###
+### Functions 
+###
+
+logit_inv=function(logit){
+  return(exp(logit)/(1+exp(logit)))
+}
+source("Polya_Gamma.R")
+
+###
+### Simulate data
+###
+
+
+### Design
+set.seed(135135)
+n=100
+X=cbind(rep(1, n),
+        rnorm(n))
+
+### Parameters 
+beta=c(0, 1)
+
+### Response 
+psi=logit_inv(X%*%beta)
+y=rbinom(n, 1, psi)
+
+### Prior
+mu_beta=rep(0, ncol(X))
+Sigma_beta=diag(2.25, ncol(X))
+n_mcmc=10000
+
+polya_gamma_out <- polya_gamma(y, X, 
+                               mu_beta, Sigma_beta,
+                               n_mcmc)
+
+### For adding truth
+tibble_truth=tibble(value=beta,
+                    Parameter=c("Intecept", "Covariate"))
+
+data_ridge <- cbind(t(polya_gamma_out$beta)) %>%
+  as_tibble() %>%
+  mutate(Iteration = 1:n_mcmc) %>%
+  gather(key = "Variable", value="value", -Iteration) %>%
+  mutate(Parameter = rep(c("Intecept", "Covariate"), each=n_mcmc)) 
+
+ggplot() +
+  theme_minimal() + 
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  ylab("") + 
+  geom_density_ridges(data=data_ridge, aes(x=value, y=Parameter)) +
+  geom_vline(data=tibble_truth, aes(xintercept=value, y=Parameter)) 
+
+```

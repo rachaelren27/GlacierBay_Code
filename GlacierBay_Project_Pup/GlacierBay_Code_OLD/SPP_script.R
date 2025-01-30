@@ -17,6 +17,7 @@ library(BayesLogit)
 library(mvnfast)
 library(pgdraw)
 library(coda)
+library(viridis)
 
 set.seed(1234)
 
@@ -66,6 +67,7 @@ ggplot() +
   geom_sf(data = footprint) + 
   geom_sf(data = seal.locs, size = 0.5)
 
+
 # --- Read in covariates -------------------------------------------------------
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
@@ -78,39 +80,47 @@ bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 plot(bath.rast.survey)
 plot(survey.poly, add = TRUE)
 
-# calculate distance from southern boundary (glacier)
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
+# read in ice
+ice.rast <- raster(here("GlacierBay_Code", "GlacierBay_Project_Pup", "covariates",
+                        "ice_20070618_FRK_clipped.tiff"))
 
-ggplot() + 
-  geom_line(data = glacier.poly, aes(x = V1, y = V2)) + 
-  geom_point(aes(x = glacier.poly[101,1], y = glacier.poly[101, 2]), color = "red")
+ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
+ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
 
-survey.poly.df <- as.data.frame(survey.poly.mat)
-glacier.poly <- survey.poly.df %>% filter(V2 < 58.84288)
-glacier.poly <- as.matrix(glacier.poly[-(1:100),]) # found index 101 using localMinima
+plot(ice.rast)
 
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_point(data = glacier.poly, aes(x = V1, y = V2), color = "red")
+# # calculate distance from southern boundary (glacier)
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
+# 
+# ggplot() + 
+#   geom_line(data = glacier.poly, aes(x = V1, y = V2)) + 
+#   geom_point(aes(x = glacier.poly[101,1], y = glacier.poly[101, 2]), color = "red")
+# 
+# survey.poly.df <- as.data.frame(survey.poly.mat)
+# glacier.poly <- survey.poly.df %>% filter(V2 < 58.84288)
+# glacier.poly <- as.matrix(glacier.poly[-(1:100),]) # found index 101 using localMinima
+# 
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_point(data = glacier.poly, aes(x = V1, y = V2), color = "red")
+# 
+# seal.mat <- as.matrix(st_coordinates(seal.locs))
+# bath.rast <- na.omit(values(bath.rast.survey))
+# 
+# seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
+# 
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
+# 
+# full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
+# 
+# glac.dist.df <- data.frame(x = full.coord[,1], y = full.coord[,2],
+#                            z = full.glac.dist[,1])
+# glac.dist.rast <- rasterFromXYZ(glac.dist.df)
+# writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
 
-seal.mat <- as.matrix(st_coordinates(seal.locs))
-bath.rast <- na.omit(values(bath.rast.survey))
-
-seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
-
-bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
-full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
-
-full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
-
-glac.dist.df <- data.frame(x = full.coord[,1], y = full.coord[,2],
-                           z = full.glac.dist[,1])
-glac.dist.rast <- rasterFromXYZ(glac.dist.df)
-writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
-
-cor(na.omit(values(bath.rast.survey)), full.glac.dist[,1]) # -0.183
 
 # --- Calculate areas ----------------------------------------------------------
 tot.area <- area.owin(survey.win)
@@ -123,33 +133,70 @@ win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
 ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
   
-# --- Set X matrices -----------------------------------------------------------
-glac.dist <- full.glac.dist[,1]
 
-seal.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
-row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
+# --- Set X matrices -----------------------------------------------------------
+# glac.dist <- full.glac.dist[,1]
+# 
+# seal.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
+# row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
+# bath.full <- cbind(values(bath.rast.survey), row.counts)
+# bath <- na.omit(bath.full)
+# X.full <- cbind(bath, glac.dist)
+# seal.idx <- c()
+# for(i in 1:nrow(X.full)){
+#   if(X.full[i,2] != 0){
+#     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
+#   }
+# }
+# X.full <- scale(X.full[,-2])
+# 
+# win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
+# X.win.full <- X.full[win.idx,]
+# 
+# X.obs <- X.full[seal.idx,]
+# n <- length(seal.idx)
+
+ice.idx <- which(!is.na(values(ice.rast)))
+ice.full.coord <- xyFromCell(ice.rast, ice.idx)
+
+bath.idx <- cellFromXY(bath.rast.survey, ice.full.coord)
+bath <- values(bath.rast.survey)[bath.idx]
+glac.dist.idx <- cellFromXY(glac.dist.rast, ice.full.coord)
+glac.dist <- values(glac.dist.rast)[glac.dist.idx]
+
+seal.full.idx <- cellFromXY(ice.rast, seal.mat)
+row.counts <- table(factor(seal.full.idx, levels = 1:length(ice.rast)))
+ice.full.counts <- cbind(values(ice.rast), row.counts)
+ice <- na.omit(ice.full.counts)
+X.full <- cbind(ice, bath, glac.dist, ice.full.coord)
 seal.idx <- c()
 for(i in 1:nrow(X.full)){
   if(X.full[i,2] != 0){
     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
   }
 }
-X.full <- scale(X.full[,-2])
+X.full <- na.omit(X.full)
+full.coord <- X.full[,5:6]
+X.full <- scale(X.full[,-c(2,5,6)])
 
-win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win))
+# check how many seals on 0 ice
+seal.ice.idx <- cellFromXY(ice.rast, seal.mat)
+num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
+
+win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win)) # 15 sec
+
 X.win.full <- X.full[win.idx,]
+X.nowin.full <- X.full[-win.idx,]
 
 X.obs <- X.full[seal.idx,]
-n <- length(seal.idx)
+n <- nrow(X.obs)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc=100000
-source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
+source(here("GlacierBay_Code", "GlacierBay_Project_Pup", "GlacierBay_Code_OLD",
+            "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc)
+out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 toc() # 543.252 sec elapsed (~9 min)
 
 # discard burn-in
@@ -157,14 +204,13 @@ n.burn <- 0.1*n.mcmc
 beta.save.full.lik <- out.comp.full$beta.save[,-(1:n.burn)]
 beta.0.save.full.lik <- out.comp.full$beta.0.save[-(1:n.burn)]
 
-
 # trace plots
 layout(matrix(1:2,2,1))
 plot(beta.0.save.full.lik,type="l")
 matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
 
 # posterior summary
-beta.save.full <- t(rbind(beta.0.save, beta.save))
+beta.save.full <- t(rbind(beta.0.save.full.lik, beta.save.full.lik))
 vioplot(data.frame(beta.save.full),
         names=expression(beta[0],beta[1],beta[2]),
         ylim = c(-10,5))
@@ -576,4 +622,119 @@ hist(N.save.pg,breaks=50,prob=TRUE,main="",xlab="N")
 mean(N.save.pg)
 sd(N.save.pg)
 quantile(N.save.pg, c(0.025, 0.975))
+
+
+# --- Posterior Intensity Function ---------------------------------------------
+beta.save <- beta.save.full.lik
+beta.0.save <- beta.0.save.full.lik
+beta.save.full <- cbind(beta.0.save, t(beta.save))
+
+# posterior mean heat map
+beta.post.means <- apply(beta.save.full,2,mean)
+lam.full <- exp(beta.post.means[1] + X.full%*%beta.post.means[-1])
+lam.full.df <- as.data.frame(cbind(full.coord, lam.full))
+lam.full.rast <- rasterFromXYZ(lam.full.df)
+
+# # get cell with highest intensity
+# lam.max.s <- lam.full.df[which(lam.full.df[,3] == max(lam.full.df[,3])),][-3]
+
+pdf("posterior_mean_heatmap.pdf")
+plot(lam.full.rast, col = viridis(100))
+# plot(survey.win, add = TRUE)
+dev.off()
+
+
+# --- Simulating seal realizations ---------------------------------------------
+# # get non-windowed cells
+# X.nonwin <- X.full[-win.idx,]
+# lam.nonwin <- exp(beta.post.means[1] + X.nonwin%*%beta.post.means[-1])
+# 
+# # create unobserved window for (S_0)
+# survey.poly.nonwin <- st_difference(survey.poly, footprint)
+# 
+# S0.windows <- list()
+# for(i in 1:length(survey.poly.nonwin)){
+#   S0.mat <- survey.poly.nonwin[[i]][[1]]
+#   if(class(survey.poly.nonwin[[i]])[2] == "GEOMETRYCOLLECTION"){
+#     S0.mat <- st_collection_extract(survey.poly.nonwin[[i]], "POLYGON")[[1]]
+#   }
+#   if(class(S0.mat)[1] == "list"){
+#     S0.mat <- S0.mat[[1]]
+#   }
+#   S0.windows[[i]] <- owin(poly = data.frame(x=S0.mat[,1],
+#                            y=S0.mat[,2]))
+# }
+# S0.win <- do.call(union.owin, S0.windows)
+# 
+# # simulate superpop
+# M=rpois(1, max(lam.nonwin)) 
+# s.superpop <- rpoint(100, win = S0.win)
+# 
+# # prepare X matrix
+# superpop.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
+# row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
+# bath.full <- cbind(values(bath.rast.survey), row.counts)
+# bath <- na.omit(bath.full)
+# X.full <- cbind(bath, glac.dist)
+# seal.idx <- c()
+# for(i in 1:nrow(X.full)){
+#   if(X.full[i,2] != 0){
+#     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
+#   }
+# }
+# X.full <- scale(X.full[,-2])
+
+lam.max <- max(lam.full)
+M <- rpois(1, area.owin(survey.win)*lam.max)
+s.superpop.full <- rpoint(M, win = survey.win)
+
+superpop.nonwin <- !inside.owin(s.superpop.full$x, s.superpop.full$y, footprint.win)
+s.superpop.nonwin <- cbind(x = s.superpop.full$x, s.superpop.full$y)[which(superpop.nonwin == TRUE),]
+M0 <- nrow(s.superpop.nonwin)
+
+# prepare X matrix
+superpop.nonwin.idx.full <- cellFromXY(ice.rast, s.superpop.nonwin)
+row.counts <- table(factor(superpop.nonwin.idx.full, levels = 1:length(ice.rast)))
+ice.full <- cbind(values(ice.rast), row.counts)
+ice <- na.omit(ice.full)
+X.superpop.full <- cbind(ice, bath, glac.dist)
+X.superpop.full <- na.omit(X.superpop.full)
+superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.superpop.full[, 2])
+X.superpop.full <- scale(X.superpop.full[,-2])
+X.superpop.nonwin <- X.superpop.full[superpop.nonwin.idx,]
+M0 <- nrow(X.superpop.nonwin)
+
+# thin superpop
+lam.superpop.nonwin=exp(beta.post.means[1] + X.superpop.nonwin%*%beta.post.means[-1])
+# lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
+
+superpop.nonwin.idx <- cellFromXY(lam.full.rast, s.superpop.nonwin)
+lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
+lam.superpop.nonwin.mat <- na.omit(cbind(s.superpop.nonwin, lam.superpop.nonwin))
+lam.superpop.nonwin.df <- as.data.frame(lam.superpop.nonwin.mat)
+colnames(lam.superpop.nonwin.df) <- c("x", "y", "fill")
+
+obs.idx=rbinom(M0,1,lam.superpop.nonwin.mat[,3]/lam.max)==1
+s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points 
+lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
+N0.pred=nrow(s.obs)
+
+# check how many seals on 0 ice
+seal.ice.idx <- cellFromXY(ice.rast, s.obs)
+num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
+
+pdf("simulate_08132007_2.pdf")
+ggplot() + 
+  geom_sf(data = survey.poly) +
+  # geom_tile(data = lam.full.df, aes(x = x, y = y, 
+  #  fill = V3), color = NA) + 
+  geom_sf(data = footprint) + 
+  labs(color = "lambda") +
+  geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
+             size = 0.1) +
+  geom_sf(data = seal.locs, size = 0.1, color = "red") +
+  theme(axis.title = element_blank())
+dev.off()
+# + 
+# geom_sf(data = seal.locs, size = 0.1, color = "red")
 

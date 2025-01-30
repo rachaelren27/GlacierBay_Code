@@ -1,5 +1,4 @@
-setwd("/Users/rlr3795/Desktop/GlacierBay_Project_Pup")
-load(here("GlacierBay_Code", "SPP_script.RData"))
+setwd("/Users/rlr3795/Desktop/GlacierBay_Project/GlacierBay_Code/GlacierBay_Project_Pup")
 
 library(sf)
 library(here)
@@ -19,7 +18,7 @@ library(pgdraw)
 library(coda)
 
 set.seed(1234)
-
+# load(here("GlacierBay_Code", "SPP_script.RData"))
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "pup_locs")
@@ -77,40 +76,43 @@ bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 plot(bath.rast.survey)
 plot(survey.poly, add = TRUE)
 
+# read in glacier distance
 glac.dist.rast <- raster(here("covariates", "glacier_dist_20070618.tiff"))
 
 # calculate distance from southern boundary (glacier)
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_point(aes(x = -137.1311, y = 58.84288), color = "red") +# westmost point
-  geom_point(aes(x = -137.1036, y = 58.83287), color = "red") # southernmost point
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_point(aes(x = -137.1311, y = 58.84288), color = "red") +# westmost point
+#   geom_point(aes(x = -137.1036, y = 58.83287), color = "red") # southernmost point
+# 
+# survey.poly.df <- as.data.frame(survey.poly.mat)
+# west.idx <- which(survey.poly.df$V1 == min(survey.poly.df$V1))
+# east.idx <- which(survey.poly.df$V2 == min(survey.poly.df$V2))
+# glacier.poly <- survey.poly.df %>% filter((V2 <= survey.poly.df[west.idx,2])
+#                                           & (V1 <= survey.poly.df[east.idx,1]))
+# 
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_line(data = glacier.poly, aes(x = V1, y = V2), color = "red")
+# 
+# # seal.mat <- as.matrix(st_coordinates(seal.locs))
+# # bath.rast <- na.omit(values(bath.rast.survey))
+# 
+# seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
+# 
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
+# 
+# full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
+# 
+# glac.dist.df <- data.frame(x = full.coord[,1], y = full.coord[,2],
+#                            z = full.glac.dist[,1])
+# glac.dist.rast <- rasterFromXYZ(glac.dist.df)
+# writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
 
-survey.poly.df <- as.data.frame(survey.poly.mat)
-west.idx <- which(survey.poly.df$V1 == min(survey.poly.df$V1))
-east.idx <- which(survey.poly.df$V2 == min(survey.poly.df$V2))
-glacier.poly <- survey.poly.df %>% filter((V2 <= survey.poly.df[west.idx,2])
-                                          & (V1 <= survey.poly.df[east.idx,1]))
+# read in ice proportions
+ice.prop.rast <- raster(here("GlacierBay_Project_Pup", "covariates", "20070618_ice_props.tif"))
 
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_line(data = glacier.poly, aes(x = V1, y = V2), color = "red")
-
-seal.mat <- as.matrix(st_coordinates(seal.locs))
-bath.rast <- na.omit(values(bath.rast.survey))
-
-seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
-
-bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
-full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
-
-full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
-
-glac.dist.df <- data.frame(x = full.coord[,1], y = full.coord[,2],
-                           z = full.glac.dist[,1])
-glac.dist.rast <- rasterFromXYZ(glac.dist.df)
-writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
-
-cor(na.omit(values(bath.rast.survey)), full.glac.dist[,1]) # -0.183
 
 # --- Calculate areas ----------------------------------------------------------
 tot.area <- area.owin(survey.win)
@@ -122,6 +124,7 @@ ex.win <- owin(poly = data.frame(x = footprint[[1]][[1]][,1],
 win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
 ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
+
 
 # --- Set X matrices -----------------------------------------------------------
 glac.dist <- full.glac.dist[,1]
@@ -144,6 +147,7 @@ X.win.full <- X.full[win.idx,]
 
 X.obs <- X.full[seal.idx,]
 n <- length(seal.idx)
+
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc=100000
@@ -191,6 +195,7 @@ mean(N.comp.save)
 sd(N.comp.save)
 quantile(N.comp.save, c(0.025, 0.975))
 
+
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()
@@ -217,6 +222,7 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+
 # --- Sample beta_0 using num quad stage 1 samples -----------------------------
 beta.save <- out.cond.full$beta.save
 theta.save <- rep(0,n.mcmc)
@@ -230,6 +236,7 @@ for(k in 1:n.mcmc){
 beta.0.save <- log(theta.save)
 
 plot(beta.0.save, type ="l")
+
 
 # --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
 # obtain background sample
@@ -278,6 +285,7 @@ out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]),
                       # beta.0.save = out.cond.full$beta.0.save[1:50000],
                       n.mcmc = 50000, n = n, ds = ds, X.full = X.win.full)
 
+
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
 X.pg <- cbind(rep(1, nrow(X.obs.bg)), X.obs.bg)
 
@@ -323,6 +331,7 @@ dev.off()
 # 
 # plot(x = x, y = dgamma(x,1000,1), type = "l")
 
+
 # --- 2nd stage - compute lambda integrals -------------------------------------
 # beta.save <- out.cond.pg$beta.save
 # theta.save <- rep(0,n.mcmc)
@@ -346,8 +355,9 @@ out.cond.pg <- list(beta.save = beta.save.pg[-1,],
                     n.mcmc = (n.mcmc - n.burn), n = n, ds = ds, X.full = X.win.full,
                     lam.int.save = lam.int.save)
 
+
 # --- 3rd stage MCMC -----------------------------------------------------------
-source(here("GlacierBay_Code_OLD", "spp.stg3.mcmc.R"))
+source(here("GlacierBay_Project_Pup", "GlacierBay_Code_OLD", "spp.stg3.mcmc.R"))
 tic()
 out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
 toc() # ~ 1 sec
@@ -379,6 +389,7 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 # lines(density(out.cond.2.full.pg$beta.0.save[-(1:1000)],n=1000, adjust = 3),
 #       col="green",lwd=2)
 
+
 # --- 1st Stage MCMC Plot Comparison -------------------------------------------
 beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
 beta.save.full.cond1 <- cbind(beta.save.full, rep(1, nrow(beta.save.full)))[,-1]
@@ -397,6 +408,7 @@ ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))
   scale_fill_manual(values = c("#00BFC4", "#F8766D", "#7CAE00"),
                     labels = c("stan_glm", "num quad", "polya-gamma"))
 dev.off()
+
 
 # --- Fit SPP using cond. output (num quad stage 2) ----------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
@@ -426,6 +438,7 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+
 # --- Fit SPP using cond. output (stan glm stage 2) ----------------------------
 tic()
 out.cond.2.bern <- spp.stg2.mcmc(out.cond.bern)
@@ -450,6 +463,7 @@ abline(h = 0, lty = 2)
 apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
+
 
 # --- Fit SPP using cond. output (polya-gamma stage 2) -------------------------
 tic()
@@ -476,20 +490,22 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+
 # --- Compare Marginal Posteriors ----------------------------------------------
-# layout(matrix(1:3,1,3))
-hist(out.comp.full$beta.0.save,prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1))
-lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.0.save,n=1000,adj=2),col=3,lwd=1)
-hist(out.comp.full$beta.save[1,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
-     ylim = c(0,5))
-lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.save[1,],n=1000,adj=2),col=3,lwd=1)
-hist(out.comp.full$beta.save[2,],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,1.5))
-lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
-lines(density(out.cond.2.full$beta.save[2,],n=1000,adj=2),col=3,lwd=1)
+layout(matrix(1:3,1,3))
+hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+     ylim = c(0,8))
+# lines(density(out.cond.full$beta.0.save,n=1000),col=2,lwd=1)
+lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000,adj=2),col=3,lwd=2)
+hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+     ylim = c(0,6))
+# lines(density(out.cond.full$beta.save[1,],n=1000),col=2,lwd=1)
+lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000,adj=2),col=3,lwd=2)
+hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+     ylim = c(0,8))
+# lines(density(out.cond.full$beta.save[2,],n=1000),col=2,lwd=1)
+lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000,adj=2),col=3,lwd=2)
+
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples

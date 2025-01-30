@@ -41,6 +41,7 @@ survey.poly <- st_transform(survey.poly.20070813$geometry,
 
 seal.locs <- st_transform(seal.locs.20070813$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
+seal.mat <- as.matrix(st_coordinates(seal.locs))
 
 footprint <- st_transform(footprint.20070813$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
@@ -68,8 +69,8 @@ footprint.win <- do.call(union.owin, footprints)
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-# ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
-# plot(ice.rast)
+ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
+plot(ice.rast)
 # 
 # ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
 #                               values(ice.rast)))
@@ -98,45 +99,42 @@ bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 # extent(bath.rast.survey.noNA) <- extent(survey.poly.mat)
 
 # s.bath.rast.na <- xyFromCell(bath.rast.survey, which(is.na(values(bath.rast.survey))))
-plot(bath.rast.survey)
-plot(survey.poly, add = TRUE)
+# plot(bath.rast.survey)
+# plot(survey.poly, add = TRUE)
 # points(x = s.bath.rast.na[,1], y = s.bath.rast.na[,2])
 
 # calculate distance from southern boundary (glacier)
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
+# 
+# ggplot() + 
+#   geom_sf(data = survey.poly) +
+#   geom_line(data = glacier.poly, aes(x = V1, y = V2), col = "blue") + 
+#   geom_point(aes(x = glacier.poly[101,1], y = glacier.poly[101, 2]), color = "red")
+# 
+# survey.poly.df <- as.data.frame(survey.poly.mat)
+# glacier.poly <- survey.poly.df %>% filter(V2 < 58.84288)
+# glacier.poly <- as.matrix(glacier.poly[-(1:100),]) # found index 101 using localMinima
+# 
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_point(data = glacier.poly, aes(x = V1, y = V2), color = "red")
 
-ggplot() + 
-  geom_sf(data = survey.poly) +
-  geom_line(data = glacier.poly, aes(x = V1, y = V2), col = "blue") + 
-  geom_point(aes(x = glacier.poly[101,1], y = glacier.poly[101, 2]), color = "red")
-
-survey.poly.df <- as.data.frame(survey.poly.mat)
-glacier.poly <- survey.poly.df %>% filter(V2 < 58.84288)
-glacier.poly <- as.matrix(glacier.poly[-(1:100),]) # found index 101 using localMinima
-
-ggplot() + 
-  geom_sf(data = survey.poly) + 
-  geom_point(data = glacier.poly, aes(x = V1, y = V2), color = "red")
-
-
-seal.mat <- as.matrix(st_coordinates(seal.locs))
 # bath.rast <- na.omit(values(bath.rast.survey))
 
-seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
-
-bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
-full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
-
-full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
-
-glac.dist.df <- data.frame(x = s.full[,1], y = s.full[,2],
-                           z = full.glac.dist[,1])
-glac.dist.rast <- rasterFromXYZ(glac.dist.df)
-writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
-
-cor(na.omit(values(bath.rast.survey)), full.glac.dist[,1]) # -0.183
+# # calculate glacier distance
+# seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
+# 
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
+# 
+# full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
+# 
+# glac.dist.df <- data.frame(x = s.full[,1], y = s.full[,2],
+#                            z = full.glac.dist[,1])
+# glac.dist.rast <- rasterFromXYZ(glac.dist.df)
+# writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
 
 
 # --- Calculate areas ----------------------------------------------------------
@@ -153,13 +151,23 @@ ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
 
 # --- Set X matrices -----------------------------------------------------------
 # glac.dist <- full.glac.dist[,1]
-glac.dist <- values(glac.dist.rast)x
 
-seal.idx <- cellFromXY(bath.rast.survey, seal.mat)
-row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
+
+ice.idx <- which(!is.na(values(ice.rast)))
+ice.full.coord <- xyFromCell(ice.rast, ice.idx)
+
+bath.idx <- cellFromXY(bath.rast.survey, ice.full.coord)
+bath <- values(bath.rast)[bath.idx]
+glac.dist.idx <- cellFromXY(glac.dist.rast, ice.full.coord)
+glac.dist <- values(glac.dist.rast)[glac.dist.idx]
+
+seal.full.idx <- cellFromXY(ice.rast, seal.mat)
+row.counts <- table(factor(seal.full.idx, levels = 1:length(ice.rast)))
+ice.full.counts <- cbind(values(ice.rast), row.counts)
+ice <- na.omit(ice.full.counts)
+X.full <- cbind(ice, bath, glac.dist)
 seal.idx <- c()
 for(i in 1:nrow(X.full)){
   if(X.full[i,2] != 0){
@@ -167,35 +175,21 @@ for(i in 1:nrow(X.full)){
   }
 }
 X.full <- scale(X.full[,-2])
-# ice.idx <- cellFromXY(ice.rast, seal.mat)
-# ice.prop <- values(ice.rast)[ice.idx]
-# ice.noNA.idx <- which(!is.na(ice.prop))
 
-# bath.idx <- cellFromXY(bath.rast, seal.mat)
-# glac.dist.idx <- cellFromXY(glac.dist.rast, seal.mat)
-# 
-# X.obs <- cbind(# values(ice.rast)[ice.idx],
-#                values(bath.rast)[bath.idx],
-#                values(glac.dist.rast)[glac.dist.idx])# [ice.noNA.idx,]
-# X.obs <- scale(X.obs)
+win.idx <- which(inside.owin(ice.full.coord[,1], ice.full.coord[,2], footprint.win)) # 15 sec
 
-# seal.mat.ice <- seal.mat[ice.noNA.idx,]
-
-win.idx <- which(inside.owin(full.coord[,1], full.coord[,2], footprint.win)) # 15 sec
-
-# X.full <- cbind(na.omit(values(bath.rast.survey)),
-#                 na.omit(values(glac.dist.rast)))
 X.win.full <- X.full[win.idx,]
 
 X.obs <- X.full[seal.idx,]
 n <- nrow(X.obs)
+
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
 out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
-toc() # 543.252 sec elapsed (~9 min)
+toc() # 321.5 sec elapsed (~5.6 min)
 
 # discard burn-in
 n.burn <- 0.1*n.mcmc
@@ -263,7 +257,7 @@ for(k in 1:(n.mcmc - n.burn)){
   N.comp.save[k]=n+rpois(1,lam.nowin.int)
 };cat("\n")
 
-hist(N.comp.save)
+hist(N.comp.save, breaks = 10)
 
 # posterior summary
 mean(N.comp.save)
@@ -794,15 +788,14 @@ boxplot(
 
 
 # --- Posterior Intensity Function ---------------------------------------------
-beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+beta.save <- beta.save.full.lik[,-(1:n.burn)]
+beta.0.save <- beta.0.save.full.lik[-(1:n.burn)]
 beta.save.full <- cbind(beta.0.save, t(beta.save))
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
 lam.full <- exp(beta.post.means[1] + X.full%*%beta.post.means[-1])
-s.full <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
-lam.full.df <- as.data.frame(cbind(s.full, lam.full))
+lam.full.df <- as.data.frame(cbind(ice.full.coord, lam.full))
 lam.full.rast <- rasterFromXYZ(lam.full.df)
 
 # # get cell with highest intensity

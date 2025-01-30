@@ -1,4 +1,4 @@
-spp.comp.mcmc <- function(s.mat,X,X.full,ds,area,n.mcmc){
+spp.comp.mcmc <- function(s.mat,X,X.full,ds,area,n.mcmc,beta.0.tune,beta.tune){
   
   #
   #  1-D SPP w/ complete data (s and n) likelihood and windowing
@@ -35,9 +35,6 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,area,n.mcmc){
   
   beta.0=log(n)-log(area)
   beta=rep(0,p)
-  
-  beta.0.tune=.1
-  beta.tune=.1
   
   ###
   ###  MCMC Loop 

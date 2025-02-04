@@ -1,5 +1,4 @@
 setwd("/Users/rlr3795/Desktop/GlacierBay_Project")
-load(here("GlacierBay_Code", "SPP_script.RData"))
 
 library(sf)
 library(here)
@@ -20,7 +19,7 @@ library(coda)
 library(viridis)
 
 set.seed(1234)
-
+load(here("GlacierBay_Code", "SPP_0618.RData"))
 
 # --- Read in NPS data ---------------------------------------------------------
 path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",

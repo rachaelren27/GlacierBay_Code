@@ -25,7 +25,7 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
   beta.save=matrix(0,p,n.mcmc)
   # beta.0.save=rep(0,n.mcmc)
   theta.save <- rep(0, n.mcmc)
-  D <- rep(0, n.mcmc)
+  # D <- rep(0, n.mcmc)
   
   ###
   ###  Priors and Starting Values
@@ -100,7 +100,7 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
     # beta.0.save[k]=beta.0 
     theta.save[k] = theta
     beta.save[,k] = beta 
-    D[k] = -2*spp.loglik(theta, beta, X, X.full, ds, n)
+    # D[k] = -2*spp.loglik(theta, beta, X, X.full, ds, n)
     
   };cat("\n")
   
@@ -108,7 +108,7 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
   ###  Write Output
   ###
   
-  list(beta.save=beta.save,beta.0.save=log(theta.save),n.mcmc=n.mcmc,D=D)
+  list(beta.save=beta.save,beta.0.save=log(theta.save),n.mcmc=n.mcmc)
   # beta.0.save = log(theta.save)/beta.0.save
   
 }

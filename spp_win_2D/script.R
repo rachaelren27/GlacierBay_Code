@@ -191,6 +191,14 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 # abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 
+# --- Fit comp. likelihood w/ ESN ----------------------------------------------
+source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
+tic()
+out.comp.esn=spp.comp.ESN.mcmc(s.win,cbind(rep(1, nrow(X.obs)), X.obs),
+                               cbind(rep(1, nrow(X.win.full)), X.win.full),
+                               5,ds,n.mcmc,0.1)
+toc()
+
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))

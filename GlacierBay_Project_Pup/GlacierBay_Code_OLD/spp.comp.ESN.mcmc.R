@@ -1,0 +1,127 @@
+spp.comp.ESN.mcmc <- function(s.mat,X,X.full,q,ds,n.mcmc,beta.tune){
+  # theta.tune/beta.0.tune
+  
+  #
+  #  1-D SPP w/ complete data (s and n) likelihood and windowing
+  #
+  
+  ###
+  ###  Subroutine 
+  ###
+  
+  spp.loglik <- function(theta,beta,W.beta,W.full.beta,ds,n){ # pass in X.full, ds
+    llam=log(theta)+W.beta
+    lam.int=sum(theta*exp(log(ds)+W.full.beta))
+    sum(llam)-lam.int-lfactorial(n) # check if we can delete lfactorial(n)
+  }
+  
+  gelu <- function(z){	
+    z*pnorm(z)
+  }
+  
+  ###
+  ###  Set up variables
+  ###
+  
+  n=nrow(s.mat)
+  p=dim(X)[2]
+  
+  beta.save=matrix(0,q,n.mcmc)
+  # beta.0.save=rep(0,n.mcmc)
+  # theta.save <- rep(0, n.mcmc)
+  # D <- rep(0, n.mcmc)
+  
+  ###
+  ###  Priors and Starting Values
+  ###
+  
+  mu.00=0
+  sig.00=10
+  # a <- 0.01
+  # b <- 0.01
+  mu.0=rep(0,q)
+  sig.0=rep(100,q)
+  
+  #theta <- exp(4)
+  beta=rep(0,q)
+  
+  A=matrix(rnorm(q*p),p,q) # NN "weights" (random and fixed for hidden layer)
+  W=gelu(X%*%A)
+  W.beta=W%*%beta
+  
+  W.full=gelu(X.full%*%A)
+  W.full.beta=W.full%*%beta
+  
+  # beta.0.tune=.1
+  # beta.tune=.1
+  
+  ###
+  ###  MCMC Loop 
+  ###
+  
+  for(k in 1:n.mcmc){
+    if(k%%1000==0){cat(k," ")}
+    
+    ###
+    ###  Sample beta 
+    ###
+    
+    beta.star=rnorm(q,beta,beta.tune)
+    mh.1=spp.loglik(theta,beta.star,W.beta,W.full.beta,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
+    mh.2=spp.loglik(theta,beta,W.beta,W.full.beta,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+    if(exp(mh.1-mh.2)>runif(1)){
+      beta=beta.star
+    }
+    
+    # beta.star=rnorm(p,beta,beta.tune)
+    # mh.1=spp.loglik(theta,beta.star,X,X.full,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
+    # mh.2=spp.loglik(theta,beta,X,X.full,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+    # if(exp(mh.1-mh.2)>runif(1)){
+    #   beta=beta.star 
+    # }
+    
+    ###
+    ###  Sample beta.0
+    ###
+    
+    # beta.0.star=rnorm(1,beta.0,beta.0.tune)
+    # mh.1=spp.loglik(beta.0.star,beta,X,X.full,ds,n)
+    # + dnorm(beta.0.star, mu.00, sig.00, log = TRUE)
+    # mh.2=spp.loglik(beta.0,beta,X,X.full,ds,n)
+    # + dnorm(beta.0, mu.00, sig.00, log = TRUE)
+    # if(exp(mh.1-mh.2)>runif(1)){
+    #   beta.0 <- beta.0.star
+    # }
+    # 
+    # theta.star <- rlnorm(1, log(theta), theta.tune)
+    # mh.1=spp.loglik(theta.star,beta,X,X.full,ds,n)
+    # + dgamma(theta.star, a, b, log = TRUE)
+    # + dlnorm(log(theta), theta.tune, log = TRUE)
+    # mh.2=spp.loglik(theta,beta,X,X.full,ds,n)
+    # + dgamma(theta, a, b, log = TRUE)
+    # + dlnorm(log(theta.star), theta.tune, log = TRUE)
+    # if(exp(mh.1-mh.2)>runif(1)){
+    #   theta <- theta.star
+    # }
+    # 
+    ###
+    ###  Save Samples
+    ###
+    
+    # beta.0.save[k]=beta.0 
+    # theta.save[k] = theta
+    beta.save[,k] = beta 
+    W.beta = W%*%beta
+    W.full.beta = W.full%*%beta
+    # D[k] = -2*spp.loglik(theta, beta, X, X.full, ds, n)
+    
+  };cat("\n")
+  
+  ###
+  ###  Write Output
+  ###
+  
+  list(beta.save=beta.save,n.mcmc=n.mcmc)
+  # beta.0.save = log(theta.save)/beta.0.save
+  
+}

@@ -86,6 +86,14 @@ matplot(t(out.comp.full$beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 ###
+### Fit SPP w/ comp. lik. w/ ESN
+###
+source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
+out.comp.esn=spp.comp.ESN.mcmc(s.win,cbind(rep(1, nrow(X.win)), X.win),
+                               cbind(rep(1, nrow(X.win.full)), X.win.full),
+                               5,ds,n.mcmc,0.1)
+
+###
 ###  Fit SPP w/ cond. lik. to full data
 ###
 

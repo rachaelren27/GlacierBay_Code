@@ -264,6 +264,15 @@ mean(N.comp.save)
 sd(N.comp.save)
 quantile(N.comp.save, c(0.025, 0.975))
 
+
+# --- Fit comp. likelihood w/ ESN ----------------------------------------------
+source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
+tic()
+out.comp.esn=spp.comp.ESN.mcmc(seal.mat,cbind(rep(1, nrow(X.obs)), X.obs),
+                                        cbind(rep(1, nrow(X.win.full)), X.win.full),
+                               5,ds,n.mcmc,0.1,0.1)
+toc()
+
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()

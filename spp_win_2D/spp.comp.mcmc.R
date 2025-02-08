@@ -36,7 +36,7 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
   a <- 0.01
   b <- 0.01
   mu.0=rep(0,p)
-  sig.0=rep(100,p)
+  sig.0=100*diag(p)
   
   theta <- exp(4)
   beta=rep(0,p)
@@ -55,9 +55,14 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
     ###  Sample beta 
     ###
     
-    beta.star=rnorm(p,beta,beta.tune)
-    mh.1=spp.loglik(theta,beta.star,X,X.full,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
-    mh.2=spp.loglik(theta,beta,X,X.full,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+    beta.star=t(mvnfast::rmvn(1,beta,beta.tune*diag(p)))
+    
+    mh.1=spp.loglik(theta,beta.star,X,X.full,ds,n) +
+         sum(mvnfast::dmvn(t(beta.star),mu.0,sig.0,log=TRUE))
+    
+    mh.2=spp.loglik(theta,beta,X,X.full,ds,n) +
+         sum(mvnfast::dmvn(t(beta),mu.0,sig.0,log=TRUE))
+    
     if(exp(mh.1-mh.2)>runif(1)){
       beta=beta.star
     }

@@ -7,6 +7,7 @@ library(tictoc)
 library(here)
 library(gbm3)
 library(patchwork)
+library(VGAM)
 
 load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
 set.seed(1234)
@@ -155,7 +156,7 @@ ggplot() +
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
+out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,n.mcmc,0.1,0.1)
 toc() # 6.568 sec
 
 # discard burn-in
@@ -193,11 +194,19 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Fit comp. likelihood w/ ESN ----------------------------------------------
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
+q <- 5
+beta.tune = 0.1
 tic()
-out.comp.esn=spp.comp.ESN.mcmc(s.win,cbind(rep(1, nrow(X.obs)), X.obs),
-                               cbind(rep(1, nrow(X.win.full)), X.win.full),
-                               5,ds,n.mcmc,0.1)
+out.comp.esn=spp.comp.ESN.mcmc(s.win, X.full, full.win.idx, obs.win.idx, q, ds,
+                               n.mcmc, beta.tune)
 toc()
+
+matplot(t(out.comp.esn$beta.save), type = 'l')
+
+X.obs.W.df <- as.data.frame(cbind(X.obs, out.comp.esn$W))
+ggplot() +
+  geom_point(data = X.obs.W.df, aes(x = x.superpop, y = y.superpop, col = V7))
+
 
 # --- Fit SPP w/ conditional likelihood ----------------------------------------
 n.mcmc=100000

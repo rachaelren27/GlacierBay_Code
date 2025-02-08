@@ -240,17 +240,18 @@ quantile(N.comp.save, c(0.025, 0.975))
 
 # --- Fit comp. likelihood w/ ESN ----------------------------------------------
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
+q <- 10
+beta.tune <- 0.1
 tic()
-out.comp.esn=spp.comp.ESN.mcmc(seal.mat,cbind(rep(1, nrow(X.obs)), X.obs),
-                               cbind(rep(1, nrow(X.win.full)), X.win.full),
-                               4,ds,n.mcmc,0.1)
+out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, X.full, win.idx, seal.idx,
+                               q, ds, n.mcmc, beta.tune)
 toc()
 
 
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
 tic()
-out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
+out.cond.full = spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
 toc() # 290.419 sec (~4.7 min)
 
 # discard burn-in

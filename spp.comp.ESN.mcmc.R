@@ -1,6 +1,7 @@
 spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,beta.tune){
   
   require(stats)
+  require(VGAM)
   
   #
   #  1-D SPP w/ complete data (s and n) likelihood and windowing
@@ -13,7 +14,7 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
   spp.loglik <- function(beta,W.obs.beta,W.win.full.beta,ds,n){ # pass in X.full, ds
     llam=W.obs.beta
     lam.int=sum(exp(log(ds)+W.win.full.beta))
-    sum(llam)-lam.int-lfactorial(n) # check if we can delete lfactorial(n)
+    sum(llam)-lam.int # check if we can delete lfactorial(n)
   }
   
   gelu <- function(z){	
@@ -24,10 +25,10 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
   ###  Priors and Starting Values
   ###
   
-  mu.00=0
-  sig.00=10
-  mu.0=rep(0,q+1)
-  sig.0=rep(100,q+1)
+  # mu.00=0
+  # b.00=1/10
+  mu.00=rep(0,q+1)
+  sigma.00=diag(q+1)
   
   ###
   ###  Set up variables
@@ -43,7 +44,7 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
   A=matrix(rnorm(q*p),p,q)
   
   W.full=gelu(X.full%*%A)
-  W.full=prcomp(W.full)$x
+  W.full=prcomp(W.full)$x # PCA
   W.obs=W.full[obs.win.idx,]
   
   # add intercept
@@ -64,11 +65,15 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
     
     ###
     ###  Sample beta 
-    ###z
+    ###
     
-    beta.star=rnorm(q,beta,beta.tune)
-    mh.1=spp.loglik(beta.star,W.obs.beta,W.win.full.beta,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
-    mh.2=spp.loglik(beta,W.obs.beta,W.win.full.beta,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+    # beta.star=rnorm(q,beta,beta.tune)
+    # mh.1=spp.loglik(beta.star,W.obs.beta,W.win.full.beta,ds,n)+sum(dnorm(beta.star,mu.0,sig.0,log=TRUE))
+    # mh.2=spp.loglik(beta,W.obs.beta,W.win.full.beta,ds,n)+sum(dnorm(beta,mu.0,sig.0,log=TRUE))
+    
+    beta.star=t(mvnfast::rmvn(1,beta,beta.tune*diag(q)))
+    mh.1=spp.loglik(beta.star,W.obs.beta,W.win.full.beta,ds,n)+sum(mvnfast::dmvn(t(beta.star),mu.00,sigma.00,log=TRUE))
+    mh.2=spp.loglik(beta,W.obs.beta,W.win.full.beta,ds,n)+sum(mvnfast::dmvn(t(beta),mu.00,sigma.00,log=TRUE))
     if(exp(mh.1-mh.2)>runif(1)){
       beta=beta.star
     }

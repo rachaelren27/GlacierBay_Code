@@ -194,11 +194,12 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Fit comp. likelihood w/ ESN ----------------------------------------------
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
-q <- 5
-beta.tune = 0.1
+q <- 4
+theta.tune <- 0.1
+beta.tune <- 0.1
 tic()
 out.comp.esn=spp.comp.ESN.mcmc(s.win, X.full, full.win.idx, obs.win.idx, q, ds,
-                               n.mcmc, beta.tune)
+                               n.mcmc, theta.tune, beta.tune)
 toc()
 
 matplot(t(out.comp.esn$beta.save), type = 'l')

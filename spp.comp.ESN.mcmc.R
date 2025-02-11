@@ -1,4 +1,5 @@
-spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,theta.tune,beta.tune){
+spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mcmc,
+                              theta.tune, beta.tune, q, lambda){
   
   require(stats)
   require(VGAM)
@@ -22,19 +23,6 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
   }
   
   ###
-  ###  Priors and Starting Values
-  ###
-  
-  # mu.00=0
-  # b.00=1/10
-  a=0.0000001
-  b=0.0000001
-  # mu.00=rep(0,q)
-  # sigma.00=1*diag(q)
-  mu.00=rep(0,q)
-  b.00=1/10
-  
-  ###
   ###  Set up variables
   ###
   
@@ -52,12 +40,25 @@ spp.comp.ESN.mcmc <- function(s.mat,X.full,full.win.idx,obs.win.idx,q,ds,n.mcmc,
   # W.full=prcomp(W.full)$x # PCA
   W.obs=W.full[obs.win.idx,]
   
-  theta=exp(4)
-  beta=rep(1,q)
+  theta=exp(10)
+  beta=rep(0,q)
   
   W.full.beta=W.full%*%beta
   W.win.full.beta=W.full.beta[full.win.idx,]
   W.obs.beta=W.full.beta[obs.win.idx,]
+  
+  ###
+  ###  Priors and Starting Values
+  ###
+  
+  # mu.00=0
+  # b.00=1/10
+  a=0.0000001
+  b=0.0000001
+  # mu.00=rep(0,q)
+  # sigma.00=1*diag(q)
+  mu.00=rep(0,q)
+  b.00=1/(lambda*n)
   
   ###
   ###  MCMC Loop 

@@ -15,7 +15,7 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
   spp.loglik <- function(theta,W.obs.beta,W.win.full.beta,ds){
     llam=log(theta)+W.obs.beta
     lam.int=sum(theta*exp(log(ds)+W.win.full.beta))
-    sum(llam)-lam.int #-lfactorial(n)
+    sum(llam)-lam.int
   }
   
   gelu <- function(z){	
@@ -28,8 +28,6 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
   
   n=nrow(s.mat)
   p=dim(X.full)[2]
-  X.win.full=X.full[full.win.idx,]
-  X.obs=X.full[obs.win.idx,]
   
   theta.save=rep(0,n.mcmc)
   beta.save=matrix(0,q,n.mcmc)
@@ -123,6 +121,6 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
   ###
   
   list(beta.0.save=log(theta.save),beta.save=beta.save,n.mcmc=n.mcmc,
-       W.full=W.full,W.obs=W.obs)
+       W.full=W.full,W.obs=W.obs,A=A)
 
 }

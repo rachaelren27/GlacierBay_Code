@@ -269,14 +269,34 @@ quantile(N.comp.save, c(0.025, 0.975))
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
 theta.tune <- exp(0.1)
 beta.tune <- 0.01
-q <- 7
+q <- 9
 lambda <- 1/100
 tic()
-out.comp.esn=spp.comp.ESN.mcmc(seal.mat, X.full, win.idx, seal.idx, ds, n.mcmc,
-                               theta.tune, beta.tune, q, lambda)
+out.comp.esn=spp.comp.ESN.mcmc(seal.mat, scale(cbind(X.full, full.coord)),
+                               win.idx, seal.idx, ds, n.mcmc, theta.tune, 
+                               beta.tune, q, lambda)
 toc()
 
 matplot(t(out.comp.esn$beta.save), type = 'l')
+
+q <- 6:12
+lambda <- c(1/500, 1/100, 1/50, 1/10, 1/2)
+q.lambda <- expand.grid(q,lambda)
+
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+out.comp.esn.list <- foreach(k = 1:nrow(q.lambda)) %dopar% {
+  q <- q.lambda[k,1]
+  lambda <- q.lambda[k,2]
+  out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, scale(cbind(X.full, full.coord)),
+                                    win.idx, seal.idx, ds, n.mcmc, theta.tune, 
+                                    beta.tune, q, lambda)
+  
+  return(out.comp.esn)
+}
+
+stopCluster(cl)
 
 # --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
 source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
@@ -802,14 +822,16 @@ boxplot(
 
 
 # --- Posterior Intensity Function ---------------------------------------------
-beta.save <- beta.save.full.lik[,-(1:n.burn)]
-beta.0.save <- beta.0.save.full.lik[-(1:n.burn)]
+out.comp.esn <- out.comp.esn.list[[14]]
+beta.0.save <- out.comp.esn$beta.0.save[-(1:n.burn)]
+beta.save <- out.comp.esn$beta.save[,-(1:n.burn)]
 beta.save.full <- cbind(beta.0.save, t(beta.save))
+W.full <- out.comp.esn$W.full
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
-lam.full <- exp(beta.post.means[1] + X.full%*%beta.post.means[-1])
-lam.full.df <- as.data.frame(cbind(ice.full.coord, lam.full))
+lam.full <- exp(beta.post.means[1] + W.full%*%beta.post.means[-1])
+lam.full.df <- as.data.frame(cbind(full.coord, lam.full))
 lam.full.rast <- rasterFromXYZ(lam.full.df)
 
 # # get cell with highest intensity
@@ -875,12 +897,19 @@ bath.full <- cbind(values(bath.rast.survey), row.counts)
 bath <- na.omit(bath.full)
 X.full <- cbind(bath, glac.dist)
 superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
-X.full <- scale(X.full[,-2])
+X.full <- scale(cbind(X.full[,-2],full.coord))
 X.superpop.nonwin <- X.full[superpop.nonwin.idx,]
+
+gelu <- function(z){	
+  z*pnorm(z)
+}
+
+A <- out.comp.esn$A
+W.superpop.nonwin <- gelu(X.superpop.nonwin%*%A)
 M0 <- nrow(X.superpop.nonwin)
 
 # thin superpop
-lam.superpop.nonwin=exp(beta.post.means[1] + X.superpop.nonwin%*%beta.post.means[-1])
+lam.superpop.nonwin=exp(beta.post.means[1] + W.superpop.nonwin%*%beta.post.means[-1])
 # lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
 
 superpop.nonwin.idx <- cellFromXY(lam.full.rast, s.superpop.nonwin)
@@ -902,8 +931,8 @@ ggplot() +
   geom_sf(data = footprint) + 
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
-             size = 0.1) +
-  geom_sf(data = seal.locs, size = 0.1, color = "red") +
+             size = 0.2) +
+  # geom_sf(data = seal.locs, size = 0.2, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
 # + 

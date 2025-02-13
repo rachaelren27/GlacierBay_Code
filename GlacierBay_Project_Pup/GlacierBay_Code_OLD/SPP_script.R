@@ -176,7 +176,7 @@ for(i in 1:nrow(X.full)){
 }
 X.full <- na.omit(X.full)
 full.coord <- X.full[,5:6]
-X.full <- scale(X.full[,-c(2,5,6)])
+X.full <- scale(X.full[,-2])
 
 # check how many seals on 0 ice
 seal.ice.idx <- cellFromXY(ice.rast, seal.mat)
@@ -710,12 +710,19 @@ ice <- na.omit(ice.full)
 X.superpop.full <- cbind(ice, bath, glac.dist)
 X.superpop.full <- na.omit(X.superpop.full)
 superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.superpop.full[, 2])
-X.superpop.full <- scale(X.superpop.full[,-2])
+X.superpop.full <- scale(cbind(X.superpop.full[,-2], full.coord))
 X.superpop.nonwin <- X.superpop.full[superpop.nonwin.idx,]
+
+gelu <- function(z){	
+  z*pnorm(z)
+}
+
+A <- out.comp.esn$A
+W.superpop.nonwin <- gelu(X.superpop.nonwin%*%A)
 M0 <- nrow(X.superpop.nonwin)
 
 # thin superpop
-lam.superpop.nonwin=exp(beta.post.means[1] + X.superpop.nonwin%*%beta.post.means[-1])
+lam.superpop.nonwin=exp(beta.post.means[1] + W.superpop.nonwin%*%beta.post.means[-1])
 # lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
 
 superpop.nonwin.idx <- cellFromXY(lam.full.rast, s.superpop.nonwin)
@@ -741,8 +748,8 @@ ggplot() +
   geom_sf(data = footprint) + 
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
-             size = 0.1) +
-  geom_sf(data = seal.locs, size = 0.1, color = "red") +
+             size = 0.2) +
+  # geom_sf(data = seal.locs, size = 0.2, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
 # + 

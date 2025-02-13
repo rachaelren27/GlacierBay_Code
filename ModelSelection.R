@@ -10,7 +10,7 @@ calc_DIC <- function(beta.post,X.obs,X.full,ds,n){
     sum(llam)-lam.int
   }
   
-  cl <- makeCluster(detectCores()-1)
+  cl <- makeCluster(detectCores()-2)
   registerDoParallel(cl)
 
   D <- foreach(k = 1:nrow(beta.post), .combine = c) %dopar% {
@@ -20,6 +20,10 @@ calc_DIC <- function(beta.post,X.obs,X.full,ds,n){
   }
 
   stopCluster(cl)
+
+  # for(k in 1:n.mcmc){
+  #   D <- -2*spp.loglik(exp(beta.post[k,1]),beta.post[k,-1],X.obs,X.full,ds,n)
+  # }
   
   theta.mean <- exp(mean(beta.post[,1]))
   beta.post <- as.matrix(beta.post[,-1])
@@ -80,6 +84,35 @@ for(i in 1:n.models){
   DIC[[i]] <- calc_DIC(beta.post, X.obs.list[[i]], X.win.full.list[[i]], ds, n)
 }
 
+n.models <- nrow(q.lambda)
+
+cl <- makeCluster(detectCores()-3)
+registerDoParallel(cl)
+
+DIC.ESN <- foreach(k = 1:nrow(beta.post)) %dopar% {
+  beta.out <- out.comp.esn.list[[k]]
+  beta.post <- t(rbind(beta.out$beta.0.save, beta.out$beta.save))[-(1:n.burn),]
+  W.obs <- beta.out$W.obs
+  W.win.full <- beta.out$W.full[win.idx,]
+  
+  DIC.ESN <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)
+
+  return(DIC.ESN)
+}
+
+stopCluster(cl)
+
+DIC.ESN <- vector("list", n.models)
+for(i in 1:n.models){
+  beta.out <- out.comp.esn.list[[i]]
+  beta.post <- t(rbind(beta.out$beta.0.save, beta.out$beta.save))[-(1:n.burn),]
+  W.obs <- beta.out$W.obs
+  W.win.full <- beta.out$W.full[win.idx,]
+
+  DIC.ESN[[i]] <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)
+  print(i)
+}
+
 # --- Model 7: intercept + ice + bathymetry + glacier distance -----------------
 out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc,0.1,0.1)
 
@@ -96,4 +129,8 @@ matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
 
 m7.DIC <- calc_DIC(beta.post, X.obs, X.win.full, ds, n)
 
-
+# --- Model 8: Model 7 + ESN bases and LASSO -----------------------------------
+beta.post <- t(rbind(out.comp.esn$beta.0.save, out.comp.esn$beta.save))[-(1:n.burn),]
+W.obs <- out.comp.esn$W.obs
+W.win.full <- out.comp.esn$W.full[win.idx,]
+m8.DIC <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)

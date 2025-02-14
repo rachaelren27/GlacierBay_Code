@@ -134,3 +134,19 @@ beta.post <- t(rbind(out.comp.esn$beta.0.save, out.comp.esn$beta.save))[-(1:n.bu
 W.obs <- out.comp.esn$W.obs
 W.win.full <- out.comp.esn$W.full[win.idx,]
 m8.DIC <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)
+
+# --- Estimate K-function ------------------------------------------------------
+obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
+obs.K <- Kinhom(obs.ppp, lambda = as.vector(lam.full)[seal.idx])
+plot(obs.K)
+lines(x = obs.K$r, y = obs.K$theo)
+
+trans.mse <- mean((obs.K$trans - obs.K$theo)^2)
+iso.mse <- mean((obs.K$iso - obs.K$theo)^2)
+
+nonwin.win <- setminus.owin(survey.win, footprint.win)
+pred.ppp <- ppp(s.obs[,1], s.obs[,2], window = nonwin.win)
+pred.K <- Kinhom(pred.ppp, lambda = lam.obs)
+
+plot(x = obs.K$r, y = obs.K$theo, type = 'l')
+lines(x = pred.K$r, y = pred.K$theo, col = "red")

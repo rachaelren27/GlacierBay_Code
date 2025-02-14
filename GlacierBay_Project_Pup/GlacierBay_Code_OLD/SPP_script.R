@@ -749,7 +749,7 @@ ggplot() +
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
              size = 0.2) +
-  # geom_sf(data = seal.locs, size = 0.2, color = "red") +
+  geom_sf(data = seal.locs, size = 0.2, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
 # + 

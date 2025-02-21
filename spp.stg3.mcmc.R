@@ -17,8 +17,8 @@ spp.stg3.mcmc <- function(out){
   accept <- 0
   
   #gamma prior hyperparameters
-  a <- 0.01
-  b <- 0.01
+  a <- 0.000001
+  b <- 0.000001
   
   beta.0.save=rep(0,n.mcmc)
   beta.save=matrix(0,p,n.mcmc)

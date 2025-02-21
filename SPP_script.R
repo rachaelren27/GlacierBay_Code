@@ -20,6 +20,7 @@ library(parallel)
 library(viridis)
 library(foreach)
 library(doParallel)
+library(bayesreg)
 
 load(here("SPP_script.RData"))
 set.seed(1234)
@@ -272,23 +273,22 @@ beta.tune <- 0.01
 q <- 9
 lambda <- 1/100
 tic()
-out.comp.esn=spp.comp.ESN.mcmc(seal.mat, scale(cbind(X.full, full.coord)),
+out.comp.esn=spp.comp.ESN.mcmc(seal.mat, X.full,
                                win.idx, seal.idx, ds, n.mcmc, theta.tune, 
                                beta.tune, q, lambda)
 toc()
 
 matplot(t(out.comp.esn$beta.save), type = 'l')
 
-q <- 6:12
-lambda <- c(1/500, 1/100, 1/50, 1/10, 1/2)
+q <- 12:20
 q.lambda <- expand.grid(q,lambda)
 
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-out.comp.esn.list <- foreach(k = 1:nrow(q.lambda)) %dopar% {
-  q <- q.lambda[k,1]
-  lambda <- q.lambda[k,2]
+out.comp.esn.list2 <- foreach(k = 1:length(q)) %dopar% {
+  q <- q[k]
+  lambda <- 1/100
   out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, scale(cbind(X.full, full.coord)),
                                     win.idx, seal.idx, ds, n.mcmc, theta.tune, 
                                     beta.tune, q, lambda)
@@ -338,47 +338,44 @@ beta.0.save <- log(theta.save)
 
 plot(beta.0.save, type ="l")
 
-# --- Fit SPP using cond. likelihood (stan glm stage 1) -----------------------
+# --- Fit SPP using cond. likelihood (bayesreg stage 1) ------------------------
 # obtain background sample
-  n.bg <- 50000
-  bg.pts <- rpoint(n.bg, win = footprint.win)
+n.bg <- 50000
+bg.pts <- rpoint(n.bg, win = footprint.win)
   
-  ggplot() + 
-    geom_sf(data = survey.poly) + 
-    geom_sf(data = footprint) + 
-    geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
-    geom_sf(data = seal.locs, size = 0.3, col = "red")
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_sf(data = footprint) + 
+#   geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+#   geom_sf(data = seal.locs, size = 0.3, col = "red")
+#   
+# prepare covariates for background sample 
+bg.mat <- cbind(bg.pts$x, bg.pts$y)
   
-  # prepare covariates for background sample 
-  bg.mat <- cbind(bg.pts$x, bg.pts$y)
-  
-  bg.full.idx <- cellFromXY(bath.rast.survey, bg.mat)
-  row.counts <- table(factor(bg.full.idx, levels = 1:length(bath.rast.survey)))
-  bath.full <- cbind(values(bath.rast.survey), row.counts)
-  bath <- na.omit(bath.full)
-  X.full <- cbind(bath, glac.dist)
-  bg.idx <- c()
-  for(i in 1:nrow(X.full)){
-    if(X.full[i,2] != 0){
-      bg.idx <- c(bg.idx, rep(i, times = X.full[i,2]))
-    }
+bg.full.idx <- cellFromXY(ice.rast, bg.mat)
+row.counts <- table(factor(bg.full.idx, levels = 1:length(ice.rast)))
+ice.full.counts <- cbind(values(ice.rast), row.counts)
+ice <- na.omit(ice.full.counts)
+X.temp <- na.omit(cbind(ice, bath, glac.dist))
+bg.idx <- c()
+for(i in 1:nrow(X.full)){
+  if(X.temp[i,2] != 0){
+    bg.idx <- c(bg.idx, rep(i, times = X.temp[i,2]))
   }
-  # 10000 -> 9802 background points (some correspond to NA in bath raster)
-  # 50000 -> 49008 bg pts
-  X.full <- scale(X.full[,-2]) 
+}
 
-X.obs <- X.full[c(seal.idx, bg.idx),] 
+X.obs.aug <- X.full[c(seal.idx, bg.idx),]
 
 y.binary <- rep(0, n + length(bg.idx))
 y.binary[1:n] <- 1
 
-bern.rsf.df <- data.frame(y = y.binary, bath = X.obs[,1], glac.dist = X.obs[,2])
+bern.rsf.df <- data.frame(y = as.factor(y.binary), ice = X.obs.aug[,1], bath = X.obs.aug[,2],
+                          glac.dist = X.obs.aug[,3])
 tic()
-out.bern.cond <- stan_glm(y ~ bath + glac.dist, family=binomial(link="logit"), data=bern.rsf.df,
-                 iter = 100000, chains = 1)
+out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = bern.rsf.df, 
+                          model = "logistic", prior = "normal", 
+                          n.samples = n.mcmc, burnin = n.burn)
 toc()
-# 9802 bg pts: 376.625 sec (~6.3 min)
-# 49008 bg pts: 2079 sec (~34.7 min)
 
 # prepare for second stage
 out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]), 
@@ -485,38 +482,24 @@ apply(SVGD.out[[n.iter]], 1, sd)
 
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-beta.save <- out.pg$beta[-1,]
-# theta.save <- rep(0,n.mcmc)
+beta.save <- out.pg$beta[,-(1:n.burn)]
 lam.int.save <- rep(0, n.mcmc)
 
 cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
 
 tic()
-lam.int.save <- foreach(k = 1:n.mcmc, .combine = c) %dopar% {
-  # Compute the value
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
   lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[, k]))
-
-  return(lam.int)  # Return the computed value
+  return(lam.int) 
 }
 toc() # 26 sec
 
-# Stop the cluster
 stopCluster(cl)
 
-# tic()
-# for(k in 1:n.particles){
-#   if(k%%1000==0){cat(k," ")}
-#   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-#   # theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
-# }
-# toc() # 128 sec (~2 min)
-# 
 # prepare for third stage
-out.cond.pg2 <- list(beta.save = out.pg$beta[-1,-(1:n.burn)], 
-                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
-                    n.mcmc = n.mcmc - n.burn, n = n, ds = ds, X.full = X.win.full,
-                    lam.int.save = lam.int.save[-(1:n.burn)])
+out.cond.pg2 <- list(beta.save = beta.save, n.mcmc = n.mcmc - n.burn, n = n,
+                     ds = ds, X.full = X.win.full, lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -547,124 +530,24 @@ beta.post.means <- apply(beta.save.full,2,mean)
 beta.post.sd <- apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# # compare marginal posterior
-# hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-#      ylim = c(0,1))
-# lines(density(beta.0.save.gibbs[-(1:1000)],n=1000, adjust = 3),col="red",lwd=2)
-# lines(density(out.cond.2.full.pg$beta.0.save[-(1:1000)],n=1000, adjust = 3),
-#       col="green",lwd=2)
-
-# --- 1st Stage MCMC Plot Comparison -------------------------------------------
-beta.save.full.stan1 <- cbind(as.matrix(out.bern.cond), rep(0, nrow(as.matrix(out.bern.cond))))[,-1]
-beta.save.full.cond1 <- cbind(beta.save.full, rep(1, nrow(beta.save.full)))[,-1]
-beta.save.full.pg <- cbind(t(beta.save), rep(2, nrow(beta.save)))[,-1]
-beta.save.full.stage1 <- as.data.frame(rbind( beta.save.full.stan1, beta.save.full.cond1, beta.save.full.pg))
-
-beta.save.stage1.long <- melt(beta.save.full.stage1, id.vars = "V3")
-
-pdf("stage1_compare.pdf")
-ggplot(beta.save.stage1.long, aes(x = variable, y = value, fill = as.factor(V3))) +
-  geom_boxplot(position = position_dodge(0.8)) +
-  labs(x = "Coefficients",
-       y = "Values",
-       fill = "Model") + 
-  scale_x_discrete(labels = c("bathymetry", "glacier distance")) + 
-  scale_fill_manual(values = c("#00BFC4", "#F8766D", "#7CAE00"),
-                    labels = c("stan_glm", "num quad", "polya-gamma"))
-dev.off()
-
-# --- Fit SPP using cond. output (num quad stage 2) ----------------------------
-source(here("GlacierBay_Code", "spp_win_2D", "spp.stg2.mcmc.R"))
-
-# using num quad results
-tic()
-out.cond.2.full=spp.stg2.mcmc(out.cond.full)
-toc() # 138.445 sec (~2.3 min)
-
-# discard burn-in
-beta.save <- out.cond.2.full$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.2.full$beta.0.save[-(1:n.burn)]
-
-# trace plots
-layout(matrix(1:2,2,1))
-plot(beta.0.save,type="l")
-matplot(t(beta.save),lty=1,type="l")
-
-# posterior summary
-beta.save.full <- t(rbind(beta.0.save, beta.save))
-vioplot(data.frame(beta.save.full),
-        names=expression(beta[0],beta[1],beta[2]),
-        ylim = c(-10,5))
-abline(h = 0, lty = 2)
-
-apply(beta.save.full,2,mean) 
-apply(beta.save.full,2,sd) 
-apply(beta.save.full,2,quantile,c(0.025,.975))
-
-# --- Fit SPP using cond. output (stan glm stage 2) ----------------------------
-tic()
-out.cond.2.bern <- spp.stg2.mcmc(out.cond.bern)
-toc() 
-
-# discard burn-in
-beta.save <- out.cond.2.bern$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.2.bern$beta.0.save[-(1:n.burn)]
-
-# trace plots
-layout(matrix(1:2,2,1))
-plot(beta.0.save,type="l")
-matplot(t(beta.save),lty=1,type="l")
-
-# posterior summary
-beta.save.full <- t(rbind(beta.0.save, beta.save))
-vioplot(data.frame(beta.save.full),
-        names=expression(beta[0],beta[1],beta[2]),
-        ylim = c(-10,5))
-abline(h = 0, lty = 2)
-
-apply(beta.save.full,2,mean) 
-apply(beta.save.full,2,sd) 
-apply(beta.save.full,2,quantile,c(0.025,.975))
-
-# --- Fit SPP using cond. output (polya-gamma stage 2) -------------------------
-tic()
-out.2.full.pg <- spp.stg2.mcmc(out.pg)
-toc() # 128.9 sec (~2 min)
-
-# discard burn-in
-beta.save <- out.cond.2.full.pg$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.2.full.pg$beta.0.save[-(1:n.burn)]
-
-# trace plots
-layout(matrix(1:2,2,1))
-plot(beta.0.save,type="l")
-matplot(t(beta.save),lty=1,type="l")
-
-# posterior summary
-beta.save.full <- t(rbind(beta.0.save, beta.save))
-vioplot(data.frame(beta.save.full),
-        names=expression(beta[0],beta[1],beta[2]),
-        ylim = c(-10,5))
-abline(h = 0, lty = 2)
-
-apply(beta.save.full,2,mean) 
-apply(beta.save.full,2,sd) 
-apply(beta.save.full,2,quantile,c(0.025,.975))
-
 # --- Compare Marginal Posteriors ----------------------------------------------
-layout(matrix(1:3,1,3))
+layout(matrix(1:4,1,4))
 hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1))
-lines(density(out.cond.2.full.pg$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+     ylim = c(0,10))
+# lines(density(out.cond.2.full.pg$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
 hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
-     ylim = c(0,5))
-lines(density(out.cond.2.full.pg$beta.save[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+     ylim = c(0,15))
+# lines(density(out.bern.cond$beta[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
 hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,1.5))
-lines(density(out.cond.2.full.pg$beta.save[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+     ylim = c(0,10))
+# lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
+hist(out.comp.full$beta.save[3,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+     ylim = c(0,10))
+# lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples
@@ -843,45 +726,6 @@ plot(lam.full.rast, col = viridis(100))
 dev.off()
 
 # --- Simulating seal realizations ---------------------------------------------
-# # get non-windowed cells
-# X.nonwin <- X.full[-win.idx,]
-# lam.nonwin <- exp(beta.post.means[1] + X.nonwin%*%beta.post.means[-1])
-# 
-# # create unobserved window for (S_0)
-# survey.poly.nonwin <- st_difference(survey.poly, footprint)
-# 
-# S0.windows <- list()
-# for(i in 1:length(survey.poly.nonwin)){
-#   S0.mat <- survey.poly.nonwin[[i]][[1]]
-#   if(class(survey.poly.nonwin[[i]])[2] == "GEOMETRYCOLLECTION"){
-#     S0.mat <- st_collection_extract(survey.poly.nonwin[[i]], "POLYGON")[[1]]
-#   }
-#   if(class(S0.mat)[1] == "list"){
-#     S0.mat <- S0.mat[[1]]
-#   }
-#   S0.windows[[i]] <- owin(poly = data.frame(x=S0.mat[,1],
-#                            y=S0.mat[,2]))
-# }
-# S0.win <- do.call(union.owin, S0.windows)
-# 
-# # simulate superpop
-# M=rpois(1, max(lam.nonwin)) 
-# s.superpop <- rpoint(100, win = S0.win)
-# 
-# # prepare X matrix
-# superpop.full.idx <- cellFromXY(bath.rast.survey, seal.mat)
-# row.counts <- table(factor(seal.full.idx, levels = 1:length(bath.rast.survey)))
-# bath.full <- cbind(values(bath.rast.survey), row.counts)
-# bath <- na.omit(bath.full)
-# X.full <- cbind(bath, glac.dist)
-# seal.idx <- c()
-# for(i in 1:nrow(X.full)){
-#   if(X.full[i,2] != 0){
-#     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
-#   }
-# }
-# X.full <- scale(X.full[,-2])
-
 lam.max <- max(lam.full)
 M <- rpois(1, area.owin(survey.win)*lam.max)
 s.superpop.full <- rpoint(M, win = survey.win)
@@ -891,14 +735,15 @@ s.superpop.nonwin <- cbind(x = s.superpop.full$x, s.superpop.full$y)[which(super
 M0 <- nrow(s.superpop.nonwin)
 
 # prepare X matrix
-superpop.nonwin.idx.full <- cellFromXY(bath.rast.survey, s.superpop.nonwin)
-row.counts <- table(factor(superpop.nonwin.idx.full, levels = 1:length(bath.rast.survey)))
-bath.full <- cbind(values(bath.rast.survey), row.counts)
-bath <- na.omit(bath.full)
-X.full <- cbind(bath, glac.dist)
-superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.full[, 2])
-X.full <- scale(cbind(X.full[,-2],full.coord))
-X.superpop.nonwin <- X.full[superpop.nonwin.idx,]
+superpop.nonwin.idx.full <- cellFromXY(ice.rast, s.superpop.nonwin)
+row.counts <- table(factor(superpop.nonwin.idx.full, levels = 1:length(ice.rast)))
+ice.full <- cbind(values(ice.rast), row.counts)
+ice <- na.omit(ice.full)
+X.superpop.full <- cbind(ice, bath, glac.dist)
+X.superpop.full <- na.omit(X.superpop.full)
+superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.superpop.full[, 2])
+X.superpop.full <- scale(cbind(X.superpop.full[,-2], full.coord))
+X.superpop.nonwin <- X.superpop.full[superpop.nonwin.idx,]
 
 gelu <- function(z){	
   z*pnorm(z)
@@ -923,18 +768,86 @@ s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points
 lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
 N0.pred=nrow(s.obs)
 
+# check how many seals on 0 ice
+seal.ice.idx <- cellFromXY(ice.rast, s.obs)
+num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
+
 pdf("simulate_08132007_2.pdf")
 ggplot() + 
   geom_sf(data = survey.poly) +
   # geom_tile(data = lam.full.df, aes(x = x, y = y, 
-                                   #  fill = V3), color = NA) + 
+  #  fill = V3), color = NA) + 
   geom_sf(data = footprint) + 
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
              size = 0.2) +
-  # geom_sf(data = seal.locs, size = 0.2, color = "red") +
+  geom_sf(data = seal.locs, size = 0.2, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
-# + 
-  # geom_sf(data = seal.locs, size = 0.1, color = "red")
 
+
+# --- L-function p-value -------------------------------------------------------
+out.comp.esn <- out.comp.esn.list[[14]]
+beta.0.save <- out.comp.esn$beta.0.save[-(1:n.burn)]
+beta.save <- out.comp.esn$beta.save[,-(1:n.burn)]
+beta.post <- cbind(beta.0.save, t(beta.save))
+W.full <- out.comp.esn$W.full
+
+# compute lambda in parallel
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+lam.full.list <- foreach(k = 1:100) %dopar% {
+  lam.full <- exp(beta.post[k,1] + W.full%*%beta.post[k,-1])
+  lam.df <- as.data.frame(cbind(full.coord, lam.full))
+  
+  return(lam.df)
+}
+
+stopCluster(cl)
+
+# simulate points in parallel
+sim_points <- function(lam.df, survey.win, footprint.win){
+  lam <- lam.df$V3
+  lam.max <- max(lam)
+  M <- rpois(1, spatstat.geom::area.owin(survey.win)*lam.max)
+  superpop.full <- rpoint(M, win = survey.win)
+  
+  superpop <- cbind(superpop.full$x, superpop.full$y)
+  
+  is.superpop.win <- inside.owin(superpop.full$x, superpop.full$y, footprint.win)
+  superpop <- cbind(x = superpop.full$x, superpop.full$y)[which(is.superpop.win == TRUE),]
+  
+  lam.rast <- rasterFromXYZ(lam.df)
+  superpop.idx <- cellFromXY(lam.rast, superpop)
+  lam.superpop <- values(lam.rast)[superpop.idx]
+  lam.superpop.mat <- na.omit(cbind(superpop, lam.superpop))
+  M <- nrow(lam.superpop.mat)
+  
+  obs.idx <- rbinom(M,1,lam.superpop.mat[,3]/lam.max)==1 # thin
+  s.obs <- lam.superpop.mat[obs.idx,1:2] 
+  lam.obs <- lam.superpop.mat[obs.idx,3]
+  
+  return(list(s.obs, lam.obs))
+}
+
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+sim.points.list <- foreach(k = 1:100) %dopar% {
+  sim.point <- sim_points(lam.full.list[[k]], survey.win, footprint.win)
+  return(sim.point)
+}
+
+stopCluster(cl)
+
+ggplot() + 
+  geom_sf(data = survey.poly) +
+  # geom_tile(data = lam.full.df, aes(x = x, y = y, 
+  #  fill = V3), color = NA) + 
+  geom_sf(data = footprint) + 
+  labs(color = "lambda") +
+  geom_point(aes(x = sim.point[[1]][,1], y = sim.point[[1]][,2]),
+             fill = sim.point[[2]], size = 0.2) +
+  geom_sf(data = seal.locs, size = 0.2, color = "red") +
+  theme(axis.title = element_blank())

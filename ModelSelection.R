@@ -129,11 +129,13 @@ matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
 
 m7.DIC <- calc_DIC(beta.post, X.obs, X.win.full, ds, n)
 
+
 # --- Model 8: Model 7 + ESN bases and LASSO -----------------------------------
 beta.post <- t(rbind(out.comp.esn$beta.0.save, out.comp.esn$beta.save))[-(1:n.burn),]
 W.obs <- out.comp.esn$W.obs
 W.win.full <- out.comp.esn$W.full[win.idx,]
 m8.DIC <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)
+
 
 # --- Estimate K-function ------------------------------------------------------
 obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
@@ -150,3 +152,6 @@ pred.K <- Kinhom(pred.ppp, lambda = lam.obs)
 
 plot(x = obs.K$r, y = obs.K$theo, type = 'l')
 lines(x = pred.K$r, y = pred.K$theo, col = "red")
+
+
+# --- Compute Bayesian p-value using L-function --------------------------------

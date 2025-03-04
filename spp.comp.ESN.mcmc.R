@@ -4,70 +4,56 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
   require(stats)
   require(VGAM)
   
-  #
-  #  1-D SPP w/ complete data (s and n) likelihood and windowing
-  #
+  # subroutines
   
-  ###
-  ###  Subroutine 
-  ###
-  
-  spp.loglik <- function(theta,W.obs.beta,W.win.full.beta,ds){
-    llam=log(theta)+W.obs.beta
-    lam.int=sum(theta*exp(log(ds)+W.win.full.beta))
-    sum(llam)-lam.int
+  spp.loglik <- function(theta, W.obs.beta, W.win.full.beta,ds){
+    llam <- log(theta) + W.obs.beta
+    lam.int <- sum(theta*exp(log(ds) + W.win.full.beta))
+    sum(llam) - lam.int
   }
   
   gelu <- function(z){	
     z*pnorm(z)
   }
   
-  ###
-  ###  Set up variables
-  ###
+  # set up variables
   
-  n=nrow(s.mat)
-  p=dim(X.full)[2]
+  n <- nrow(s.mat)
+  p <- dim(X.full)[2]
   
-  theta.save=rep(0,n.mcmc)
-  beta.save=matrix(0,q,n.mcmc)
+  theta.save <- rep(0, n.mcmc)
+  beta.save <- matrix(0, q, n.mcmc)
   
-  A=matrix(rnorm(q*p),p,q)
+  # set basis functions
+  A <- matrix(rnorm(q*p), p, q)
+   
+  W.full <- gelu(X.full%*%A)
+  W.obs <- W.full[obs.win.idx,]
   
-  W.full=gelu(X.full%*%A)
-  # W.full=prcomp(W.full)$x # PCA
-  W.obs=W.full[obs.win.idx,]
+  theta <- exp(10)
+  beta <- rep(0, q)
   
-  theta=exp(10)
-  beta=rep(0,q)
+  W.full.beta <- W.full%*%beta
+  W.win.full.beta <- W.full.beta[full.win.idx,]
+  W.obs.beta <- W.full.beta[obs.win.idx,]
   
-  W.full.beta=W.full%*%beta
-  W.win.full.beta=W.full.beta[full.win.idx,]
-  W.obs.beta=W.full.beta[obs.win.idx,]
-  
-  ###
-  ###  Priors and Starting Values
-  ###
+  # priors/starting values
   
   # mu.00=0
   # b.00=1/10
-  a=0.0000001
-  b=0.0000001
+  a <- 0.0000001
+  b <- 0.0000001
   # mu.00=rep(0,q)
   # sigma.00=1*diag(q)
   mu.00=rep(0,q)
   b.00=1/(lambda*n)
   
-  ###
-  ###  MCMC Loop 
-  ###
+  # mcmc
   
   for(k in 1:n.mcmc){
-    if(k%%1000==0){cat(k," ")}
+    if(k %% 1000 == 0){cat(k, " ")}
     
-    ###
-    ###  Sample beta 
-    ###
+    # sample beta
     
     # beta.star=t(mvnfast::rmvn(1,beta,beta.tune*diag(q)))
     # 
@@ -87,17 +73,16 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
            sum(dlaplace(beta,mu.00,b.00,log=TRUE))
     
     if(exp(mh.1-mh.2)>runif(1)){
-      beta=beta.star
-      W.full.beta = W.full%*%beta
-      W.win.full.beta = W.full.beta[full.win.idx,]
-      W.obs.beta = W.full.beta[obs.win.idx,]
+      beta <- beta.star
+      W.full.beta <- W.full%*%beta
+      W.win.full.beta <- W.full.beta[full.win.idx,]
+      W.obs.beta <- W.full.beta[obs.win.idx,]
     }
     
-    ###
-    ###  Sample theta
-    ###
+    # sample theta
+    
     theta.star <- rlnorm(1, log(theta), theta.tune)
-    mh.1=spp.loglik(theta.star,W.obs.beta,W.win.full.beta,ds) + 
+    mh.1=spp.loglik(theta.star, W.obs.beta, W.win.full.beta,ds) + 
          dgamma(theta.star, a, b, log = TRUE) +
          dlnorm(theta, log(theta), theta.tune, log = TRUE)
     mh.2=spp.loglik(theta,W.obs.beta,W.win.full.beta,ds) + 
@@ -107,20 +92,14 @@ spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mc
       theta <- theta.star
     }
  
-    ###
-    ###  Save Samples
-    ###
+    # sample theta
     
-    theta.save[k] = theta
-    beta.save[,k] = beta 
+    theta.save[k] <- theta
+    beta.save[,k] <- beta 
     
   };cat("\n")
   
-  ###
-  ###  Write Output
-  ###
-  
-  list(beta.0.save=log(theta.save),beta.save=beta.save,n.mcmc=n.mcmc,
-       W.full=W.full,W.obs=W.obs,A=A)
+  list(beta.0.save=log(theta.save), beta.save=beta.save, n.mcmc=n.mcmc,
+       W.full=W.full, W.obs=W.obs, A=A)
 
 }

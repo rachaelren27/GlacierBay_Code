@@ -114,7 +114,7 @@ for(i in 1:n.models){
 }
 
 # --- Model 7: intercept + ice + bathymetry + glacier distance -----------------
-out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc,0.1,0.1)
+out.comp.full <- spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc,0.1,0.1)
 
 # discard burn-in
 beta.save.full.lik <- out.comp.full$beta.save[,-(1:n.burn)]
@@ -135,7 +135,6 @@ beta.post <- t(rbind(out.comp.esn$beta.0.save, out.comp.esn$beta.save))[-(1:n.bu
 W.obs <- out.comp.esn$W.obs
 W.win.full <- out.comp.esn$W.full[win.idx,]
 m8.DIC <- calc_DIC(beta.post, W.obs, W.win.full, ds, n)
-
 
 # --- Estimate K-function ------------------------------------------------------
 obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)

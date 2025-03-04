@@ -70,9 +70,11 @@ footprint.win <- do.call(union.owin, footprints)
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-ice.rast <- raster(here("covariates", "20070813_ice_props.tif"))
+ice.rast <- raster(here("covariates", "LK_ice_estimates.tiff"))
+ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
+ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
 plot(ice.rast)
-# 
+
 # ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
 #                               values(ice.rast)))
 # 
@@ -160,7 +162,7 @@ ice.idx <- which(!is.na(values(ice.rast)))
 ice.full.coord <- xyFromCell(ice.rast, ice.idx)
 
 bath.idx <- cellFromXY(bath.rast.survey, ice.full.coord)
-bath <- values(bath.rast)[bath.idx]
+bath <- values(bath.rast.survey)[bath.idx]
 glac.dist.idx <- cellFromXY(glac.dist.rast, ice.full.coord)
 glac.dist <- values(glac.dist.rast)[glac.dist.idx]
 
@@ -175,6 +177,7 @@ for(i in 1:nrow(X.full)){
     seal.idx <- c(seal.idx, rep(i, times = X.full[i,2]))
   }
 }
+X.full <- na.omit(X.full)
 X.full <- scale(X.full[,-2])
 
 win.idx <- which(inside.owin(ice.full.coord[,1], ice.full.coord[,2], footprint.win)) # 15 sec
@@ -186,10 +189,13 @@ n <- nrow(X.obs)
 
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
-n.mcmc=100000
+n.mcmc <- 100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
+theta.tune <- 0.1
+beta.tune <- 0.01
 tic()
-out.comp.full=spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
+out.comp.full <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, n.mcmc, theta.tune,
+                               beta.tune)
 toc() # 321.5 sec elapsed (~5.6 min)
 
 # discard burn-in
@@ -268,12 +274,14 @@ quantile(N.comp.save, c(0.025, 0.975))
 
 # --- Fit comp. likelihood w/ ESN ----------------------------------------------
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
-theta.tune <- exp(0.1)
-beta.tune <- 0.01
-q <- 9
+X.full <- cbind(X.full, full.coord)
+
+theta.tune <- 0.1
+beta.tune <- 0.001
+q <- 10
 lambda <- 1/100
 tic()
-out.comp.esn=spp.comp.ESN.mcmc(seal.mat, X.full,
+out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, X.full,
                                win.idx, seal.idx, ds, n.mcmc, theta.tune, 
                                beta.tune, q, lambda)
 toc()
@@ -340,7 +348,7 @@ plot(beta.0.save, type ="l")
 
 # --- Fit SPP using cond. likelihood (bayesreg stage 1) ------------------------
 # obtain background sample
-n.bg <- 50000
+n.bg <- 100000
 bg.pts <- rpoint(n.bg, win = footprint.win)
   
 # ggplot() + 
@@ -348,7 +356,7 @@ bg.pts <- rpoint(n.bg, win = footprint.win)
 #   geom_sf(data = footprint) + 
 #   geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
 #   geom_sf(data = seal.locs, size = 0.3, col = "red")
-#   
+   
 # prepare covariates for background sample 
 bg.mat <- cbind(bg.pts$x, bg.pts$y)
   
@@ -365,22 +373,29 @@ for(i in 1:nrow(X.full)){
 }
 
 X.obs.aug <- X.full[c(seal.idx, bg.idx),]
+y.obs.binary <- rep(0, n + length(bg.idx))
+y.obs.binary[1:n] <- 1
+logit.obs.df <- data.frame(y = as.factor(y.obs.binary), ice = X.obs.aug[,1], 
+                           bath = X.obs.aug[,2], glac.dist = X.obs.aug[,3])
 
-y.binary <- rep(0, n + length(bg.idx))
-y.binary[1:n] <- 1
+X.full.aug <- rbind(X.full, X.full[bg.idx,])
+X.win.aug <- X.full[c(win.idx, bg.idx),]
 
-bern.rsf.df <- data.frame(y = as.factor(y.binary), ice = X.obs.aug[,1], bath = X.obs.aug[,2],
-                          glac.dist = X.obs.aug[,3])
+# vanilla logistic bayesreg
 tic()
-out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = bern.rsf.df, 
-                          model = "logistic", prior = "normal", 
-                          n.samples = n.mcmc, burnin = n.burn)
+out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+                          model = "logistic", n.samples = n.mcmc, burnin = n.burn)
+toc()
+
+# ELM logistic bayesreg
+tic()
+out.bern.ELM <- spp.logit.bayesreg.ELM(p, q, X.obs.aug, X.full.aug, X.win.aug, n.mcmc, obs.idx,
+                                       win.idx, ds, y.obs.binary)
 toc()
 
 # prepare for second stage
 out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]), 
-                      # beta.0.save = out.cond.full$beta.0.save[1:50000],
-                      n.mcmc = 50000, n = n, ds = ds, X.full = X.win.full)
+                      n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
 
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
@@ -482,8 +497,8 @@ apply(SVGD.out[[n.iter]], 1, sd)
 
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-beta.save <- out.pg$beta[,-(1:n.burn)]
-lam.int.save <- rep(0, n.mcmc)
+beta.save <- out.bern.cond$beta[,-(1:n.burn)]
+lam.int.save <- rep(0, n.mcmc - n.burn)
 
 cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
@@ -532,22 +547,29 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:4,1,4))
-hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,10))
+hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
+     xlab=bquote(beta[0]), ylim = c(0,10))
 # lines(density(out.cond.2.full.pg$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
-hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
-     ylim = c(0,15))
-# lines(density(out.bern.cond$beta[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
-hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,10))
-# lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
-hist(out.comp.full$beta.save[3,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,10))
-# lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)],n=1000,adj=2),col="green",lwd=2)
+lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)], n=1000, adj=2), col="green",
+      lwd=2)
+
+hist(out.comp.full$beta.save[1,-(1:n.burn)], prob=TRUE, breaks=60, main="", 
+     xlab=bquote(beta[1]), ylim = c(0,15))
+lines(density(out.bern.cond$beta[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[1, -(1:n.burn)], n=1000, adj=2), col="green",
+      lwd=2)
+
+hist(out.comp.full$beta.save[2,-(1:n.burn)], prob=TRUE, breaks=60, 
+     main= "" , xlab=bquote(beta[2]), ylim = c(0,10))
+lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)], n=1000, adj=2), col="green", 
+      lwd=2)
+
+hist(out.comp.full$beta.save[3,-(1:n.burn)], prob=TRUE, breaks=60, main="", 
+     xlab=bquote(beta[2]), ylim = c(0,10))
+lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)], n=1000, adj=2), col="green",
+      lwd=2)
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples
@@ -742,15 +764,17 @@ ice <- na.omit(ice.full)
 X.superpop.full <- cbind(ice, bath, glac.dist)
 X.superpop.full <- na.omit(X.superpop.full)
 superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.superpop.full[, 2])
-X.superpop.full <- scale(cbind(X.superpop.full[,-2], full.coord))
+X.superpop.full <- scale(X.superpop.full[,-2])
 X.superpop.nonwin <- X.superpop.full[superpop.nonwin.idx,]
 
 gelu <- function(z){	
   z*pnorm(z)
 }
 
-A <- out.comp.esn$A
-W.superpop.nonwin <- gelu(X.superpop.nonwin%*%A)
+A1 <- out.comp.esn$A1
+A2 <- out.comp.esn$A2
+W.superpop.nonwin1 <- gelu(X.superpop.nonwin%*%A1)
+W.superpop.nonwin <- gelu(W.superpop.nonwin1%*%A2)
 M0 <- nrow(X.superpop.nonwin)
 
 # thin superpop

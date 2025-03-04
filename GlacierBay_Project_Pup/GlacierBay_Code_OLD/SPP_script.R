@@ -81,7 +81,7 @@ plot(survey.poly, add = TRUE)
 
 # read in ice
 ice.rast <- raster(here("GlacierBay_Code", "GlacierBay_Project_Pup", "covariates",
-                        "ice_20070618_FRK_clipped.tiff"))
+                        "LK_ice_estimates.tiff"))
 
 ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
 ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
@@ -167,7 +167,7 @@ seal.full.idx <- cellFromXY(ice.rast, seal.mat)
 row.counts <- table(factor(seal.full.idx, levels = 1:length(ice.rast)))
 ice.full.counts <- cbind(values(ice.rast), row.counts)
 ice <- na.omit(ice.full.counts)
-X.full <- cbind(ice, bath, glac.dist, ice.full.coord)
+X.full <- cbind(ice, bath, glac.dist)
 seal.idx <- c()
 for(i in 1:nrow(X.full)){
   if(X.full[i,2] != 0){
@@ -175,7 +175,7 @@ for(i in 1:nrow(X.full)){
   }
 }
 X.full <- na.omit(X.full)
-full.coord <- X.full[,5:6]
+# full.coord <- X.full[,5:6]
 X.full <- scale(X.full[,-2])
 
 # check how many seals on 0 ice

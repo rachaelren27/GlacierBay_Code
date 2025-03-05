@@ -387,14 +387,33 @@ out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = logit.obs.df,
                           model = "logistic", n.samples = n.mcmc, burnin = n.burn)
 toc()
 
+# test ELM logistic glm
+n.sim <- 100
+q <- 5
+A.array <- array(0, c(p, q, n.sim))
+W.array <- array(0, c(nrow(X.obs.aug), q, n.sim))
+aic.vec <- rep(0, n.sim)
+beta.mat <- matrix(0, q+1, n.mcmc)
+
+for(l in 1:n.sim){
+  A.array[,,l] <- matrix(rnorm(q*p), p, q)
+  W.array[,,l] <- gelu(X.obs.aug%*%A.array[,,l])
+  tmp.lm <- glm(y.obs.binary ~ W.array[,,l], family = binomial(link = "logit"))
+  aic.vec[l] <- AIC(tmp.lm)
+  beta.mat[,l] <- coef(tmp.lm)
+}
+best.idx <- (1:n.sim)[aic.vec == min(aic.vec)]
+cat("best AIC:", aic.vec[best.idx], "\n")
+
 # ELM logistic bayesreg
+source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
 tic()
-out.bern.ELM <- spp.logit.bayesreg.ELM(p, q, X.obs.aug, X.full.aug, X.win.aug, n.mcmc, obs.idx,
-                                       win.idx, ds, y.obs.binary)
+out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, X.win.aug, win.idx,
+                                       seal.idx, ds, n.mcmc, q)
 toc()
 
 # prepare for second stage
-out.cond.bern <- list(beta.save = t(as.matrix(out.bern.cond)[,-1]), 
+out.cond.bern <- list(beta.save = out.bern.ELM$beta.save, 
                       n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
 
 
@@ -497,7 +516,8 @@ apply(SVGD.out[[n.iter]], 1, sd)
 
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-beta.save <- out.bern.cond$beta[,-(1:n.burn)]
+beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
+W.win.full <- out.bern.ELM$W.full[win.idx,]
 lam.int.save <- rep(0, n.mcmc - n.burn)
 
 cl <- makeCluster(detectCores()-1)
@@ -505,7 +525,7 @@ registerDoParallel(cl)
 
 tic()
 lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[, k]))
+  lam.int <- sum(exp(log(ds) + W.win.full %*% beta.save[, k]))
   return(lam.int) 
 }
 toc() # 26 sec
@@ -514,7 +534,7 @@ stopCluster(cl)
 
 # prepare for third stage
 out.cond.pg2 <- list(beta.save = beta.save, n.mcmc = n.mcmc - n.burn, n = n,
-                     ds = ds, X.full = X.win.full, lam.int.save = lam.int.save)
+                     ds = ds, X.full = W.win.full, lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -727,11 +747,11 @@ boxplot(
 
 
 # --- Posterior Intensity Function ---------------------------------------------
-out.comp.esn <- out.comp.esn.list[[14]]
-beta.0.save <- out.comp.esn$beta.0.save[-(1:n.burn)]
-beta.save <- out.comp.esn$beta.save[,-(1:n.burn)]
+out.comp.esn <- out.cond.pg3
+beta.0.save <- out.comp.esn$beta.0.save
+beta.save <- out.comp.esn$beta.save
 beta.save.full <- cbind(beta.0.save, t(beta.save))
-W.full <- out.comp.esn$W.full
+W.full <- out.bern.ELM$W.full[1:nrow(X.full),]
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
@@ -771,10 +791,8 @@ gelu <- function(z){
   z*pnorm(z)
 }
 
-A1 <- out.comp.esn$A1
-A2 <- out.comp.esn$A2
-W.superpop.nonwin1 <- gelu(X.superpop.nonwin%*%A1)
-W.superpop.nonwin <- gelu(W.superpop.nonwin1%*%A2)
+A <- out.bern.ELM$A
+W.superpop.nonwin <- gelu(X.superpop.nonwin%*%A)
 M0 <- nrow(X.superpop.nonwin)
 
 # thin superpop
@@ -804,8 +822,8 @@ ggplot() +
   geom_sf(data = footprint) + 
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
-             size = 0.2) +
-  geom_sf(data = seal.locs, size = 0.2, color = "red") +
+             size = 0.5) +
+  geom_sf(data = seal.locs, size = 0.5, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
 

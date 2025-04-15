@@ -232,7 +232,7 @@ effectiveSize(out.cond.full$beta.save[2,]) # 463
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 10000
+n.bg <- 50000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 plot(domain)
@@ -245,10 +245,12 @@ X.bern <- rbind(X.win, X.bg)
 y.bern <- rep(0, n + n.bg)
 y.bern[1:n] <- 1
 
+# Bayesian
 bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
 out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
                           iter = 100000, chains = 1) # 75 sec
 
+# non-Bayesian
 out.bern.cond <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df)
 beta.glm <- coef(out.bern.cond)[-1]
 se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
@@ -305,7 +307,7 @@ for(k in 1:n.mcmc){
 };cat("\n")
 
 # using glm samples
-beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm))
+beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2))
 lam.int.save.glm <- c()
 
 for(k in 1:n.mcmc){

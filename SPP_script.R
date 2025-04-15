@@ -5,12 +5,9 @@ library(here)
 library(tidyverse)
 library(terra)
 library(raster)
-library(geosphere)
 library(tictoc)
-library(vioplot)
 library(spatstat)
 library(rstanarm)
-library(reshape2)
 library(BayesLogit)
 library(mvnfast)
 library(pgdraw)
@@ -19,7 +16,6 @@ library(parallel)
 library(viridis)
 library(foreach)
 library(doParallel)
-library(bayesreg)
 
 load(here("SPP_script.RData"))
 set.seed(1234)
@@ -204,7 +200,7 @@ beta.tune <- 0.01
 tic()
 out.comp.full <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, n.mcmc, theta.tune,
                                beta.tune)
-toc() # 321.5 sec elapsed (~5.6 min)
+toc() # 453.14 sec elapsed (~7.5 min)
 
 # discard burn-in
 n.burn <- 0.1*n.mcmc
@@ -216,47 +212,48 @@ layout(matrix(1:2,2,1))
 plot(beta.0.save.full.lik,type="l")
 matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
 
-# find optimal tuning parameters
-beta.0.tune <- c(0.01,0.05,0.1,0.5)
-beta.tune <- c(0.01,0.05,0.1,0.5)
-tune.params <- expand.grid(beta.0.tune, beta.tune)
-
-out.comp.compare <- list()
-effective.size <- matrix(nrow = nrow(tune.params), ncol = 3)
-# for(i in 1:nrow(tune.params)){
-#   out.comp <- spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,
-#                                          10000,tune.params[i,1], tune.params[i,2])
-#   effective.size[i,] <- c(effectiveSize(out.comp.compare$beta.0.save[-(1:1000)]),
-#                           effectiveSize(out.comp.compare$beta.save[1,-(1:1000)]),
-#                           effectiveSize(out.comp.compare$beta.save[2,-(1:1000)]))
-#   out.comp.compare[[i]] <- out.comp
+# # find optimal tuning parameters
+# beta.0.tune <- c(0.01,0.05,0.1,0.5)
+# beta.tune <- c(0.01,0.05,0.1,0.5)
+# tune.params <- expand.grid(beta.0.tune, beta.tune)
+# 
+# out.comp.compare <- list()
+# effective.size <- matrix(nrow = nrow(tune.params), ncol = 3)
+# # for(i in 1:nrow(tune.params)){
+# #   out.comp <- spp.comp.mcmc(seal.mat,X.obs,X.win.full,ds,win.area,
+# #                                          10000,tune.params[i,1], tune.params[i,2])
+# #   effective.size[i,] <- c(effectiveSize(out.comp.compare$beta.0.save[-(1:1000)]),
+# #                           effectiveSize(out.comp.compare$beta.save[1,-(1:1000)]),
+# #                           effectiveSize(out.comp.compare$beta.save[2,-(1:1000)]))
+# #   out.comp.compare[[i]] <- out.comp
+# # }
+# 
+# process_function <- function(i) {
+#   result <- list()
+#   out.comp <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, win.area, 
+#                             10000, tune.params[i, 1], tune.params[i, 2])
+#   result$out.comp <- out.comp
+#   result$eff.size <- c(effectiveSize(out.comp$beta.0.save[-(1:2000)]),
+#                        effectiveSize(out.comp$beta.save[1, -(1:2000)]),
+#                        effectiveSize(out.comp$beta.save[2, -(1:2000)]))
+#   return(result)
 # }
+# 
+# # Run the parallel loop
+# results <- mclapply(1:nrow(tune.params), process_function, mc.cores = 10)
+# 
+# # Combine the results
+# out.comp.compare <- lapply(results, function(x) x$out.comp)
+# effective.size <- do.call(rbind, lapply(results, function(x) x$eff.size))
+# 
+# # # posterior summary
+# # beta.save.full <- t(rbind(beta.0.save, beta.save))
+# # vioplot(data.frame(beta.save.full),
+# #         names=expression(beta[0],beta[1],beta[2]),
+# #         ylim = c(-10,5))
+# # abline(h = 0, lty = 2)
 
-process_function <- function(i) {
-  result <- list()
-  out.comp <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, win.area, 
-                            10000, tune.params[i, 1], tune.params[i, 2])
-  result$out.comp <- out.comp
-  result$eff.size <- c(effectiveSize(out.comp$beta.0.save[-(1:2000)]),
-                       effectiveSize(out.comp$beta.save[1, -(1:2000)]),
-                       effectiveSize(out.comp$beta.save[2, -(1:2000)]))
-  return(result)
-}
-
-# Run the parallel loop
-results <- mclapply(1:nrow(tune.params), process_function, mc.cores = 10)
-
-# Combine the results
-out.comp.compare <- lapply(results, function(x) x$out.comp)
-effective.size <- do.call(rbind, lapply(results, function(x) x$eff.size))
-
-# posterior summary
-beta.save.full <- t(rbind(beta.0.save, beta.save))
-vioplot(data.frame(beta.save.full),
-        names=expression(beta[0],beta[1],beta[2]),
-        ylim = c(-10,5))
-abline(h = 0, lty = 2)
-
+beta.save.full <- t(rbind(beta.0.save.full.lik, beta.save.full.lik))
 apply(beta.save.full,2,mean) 
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
@@ -354,7 +351,7 @@ beta.0.save <- log(theta.save)
 
 plot(beta.0.save, type ="l")
 
-# --- Fit SPP using cond. likelihood (bayesreg stage 1) ------------------------
+# --- Fit SPP using cond. likelihood (glm stage 1) ------------------------
 # obtain background sample
 n.bg <- 100000
 bg.pts <- rpoint(n.bg, win = footprint.win)
@@ -383,42 +380,57 @@ for(i in 1:nrow(X.full)){
 X.obs.aug <- X.full[c(seal.idx, bg.idx),]
 y.obs.binary <- rep(0, n + length(bg.idx))
 y.obs.binary[1:n] <- 1
-logit.obs.df <- data.frame(y = as.factor(y.obs.binary), ice = X.obs.aug[,1], 
+logit.obs.df <- data.frame(y = y.obs.binary, ice = X.obs.aug[,1], 
                            bath = X.obs.aug[,2], glac.dist = X.obs.aug[,3])
 
 X.full.aug <- rbind(X.full, X.full[bg.idx,])
 X.win.aug <- X.full[c(win.idx, bg.idx),]
 
-# vanilla logistic bayesreg
+# vanilla glm
 tic()
-out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = logit.obs.df, 
-                          model = "logistic", n.samples = n.mcmc, burnin = n.burn)
-toc()
+out.bern.cond <- glm(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+                     family=binomial(link="logit"))
+toc() # 0.17
+beta.glm <- coef(out.bern.cond)[-1]
+se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
 
-# test ELM logistic glm
-n.sim <- 100
-q <- 5
-A.array <- array(0, c(p, q, n.sim))
-W.array <- array(0, c(nrow(X.obs.aug), q, n.sim))
-aic.vec <- rep(0, n.sim)
-beta.mat <- matrix(0, q+1, n.mcmc)
+# # vanilla Bayesian glm
+# tic()
+# out.bern.cond <- stan_glm(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+#                      family=binomial(link="logit"), iter = 100000, chains = 1)
+# toc()
 
-for(l in 1:n.sim){
-  A.array[,,l] <- matrix(rnorm(q*p), p, q)
-  W.array[,,l] <- gelu(X.obs.aug%*%A.array[,,l])
-  tmp.lm <- glm(y.obs.binary ~ W.array[,,l], family = binomial(link = "logit"))
-  aic.vec[l] <- AIC(tmp.lm)
-  beta.mat[,l] <- coef(tmp.lm)
-}
-best.idx <- (1:n.sim)[aic.vec == min(aic.vec)]
-cat("best AIC:", aic.vec[best.idx], "\n")
 
-# ELM logistic bayesreg
-source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
-tic()
-out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, X.win.aug, win.idx,
-                                       seal.idx, ds, n.mcmc, q)
-toc()
+# # vanilla logistic bayesreg
+# tic()
+# out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+#                           model = "logistic", n.samples = n.mcmc, burnin = n.burn)
+# toc()
+# 
+# # test ELM logistic glm
+# n.sim <- 100
+# q <- 5
+# A.array <- array(0, c(p, q, n.sim))
+# W.array <- array(0, c(nrow(X.obs.aug), q, n.sim))
+# aic.vec <- rep(0, n.sim)
+# beta.mat <- matrix(0, q+1, n.mcmc)
+# 
+# for(l in 1:n.sim){
+#   A.array[,,l] <- matrix(rnorm(q*p), p, q)
+#   W.array[,,l] <- gelu(X.obs.aug%*%A.array[,,l])
+#   tmp.lm <- glm(y.obs.binary ~ W.array[,,l], family = binomial(link = "logit"))
+#   aic.vec[l] <- AIC(tmp.lm)
+#   beta.mat[,l] <- coef(tmp.lm)
+# }
+# best.idx <- (1:n.sim)[aic.vec == min(aic.vec)]
+# cat("best AIC:", aic.vec[best.idx], "\n")
+# 
+# # ELM logistic bayesreg
+# source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
+# tic()
+# out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, X.win.aug, win.idx,
+#                                        seal.idx, ds, n.mcmc, q)
+# toc()
 
 # prepare for second stage
 out.cond.bern <- list(beta.save = out.bern.ELM$beta.save, 
@@ -475,42 +487,28 @@ dev.off()
 # plot(x = x, y = dgamma(x,1000,1), type = "l")
 
 
-# --- PG VB --------------------------------------------------------------------
-source(here("GlacierBay_Code", "PG_VB.R"))
-
-mu.beta <- rep(0.0001, p)
-sigma.beta <- diag(100, p)
-
-# tic()
-# out.cond.pg.vb <- PG_VB(y.binary, X.pg, mu.beta, sigma.beta, 1000)
-# toc()
-
-prior <- list(Sigma = sigma.beta, mu = mu.beta)
-tic()
-out.pg.vb <- logit_CAVI(X.pg, y.binary, prior, tol = 0.001)
-toc() # 1284 iterations, 5.5 sec
-
-
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
 W.win.full <- out.bern.ELM$W.full[win.idx,]
-lam.int.save <- rep(0, n.mcmc - n.burn)
+
+beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2))
+lam.int.save <- rep(0, n.mcmc)
 
 cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
 
 tic()
-lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + W.win.full %*% beta.save[, k]))
+lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[k,]))
   return(lam.int) 
 }
-toc() # 26 sec
+toc()
 
-stopCluster(cl)
+stopCluster(cl) # 22.4 sec
 
 # prepare for third stage
-out.cond.pg2 <- list(beta.save = beta.save, n.mcmc = n.mcmc - n.burn, n = n,
-                     ds = ds, X.full = W.win.full, lam.int.save = lam.int.save)
+out.cond.pg2 <- list(beta.save = t(beta.save), n.mcmc = n.mcmc, n = n,
+                     ds = ds, X.full = X.win.full, lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -543,27 +541,27 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:4,1,4))
-hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
+# hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
      xlab=bquote(beta[0]), ylim = c(0,10))
-# lines(density(out.cond.2.full.pg$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.comp.full$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
 
 hist(out.comp.full$beta.save[1,-(1:n.burn)], prob=TRUE, breaks=60, main="", 
      xlab=bquote(beta[1]), ylim = c(0,15))
-lines(density(out.bern.cond$beta[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[1, -(1:n.burn)], n=1000, adj=2), col="green",
+# lines(density(out.bern.cond$beta[1,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
 
 hist(out.comp.full$beta.save[2,-(1:n.burn)], prob=TRUE, breaks=60, 
      main= "" , xlab=bquote(beta[2]), ylim = c(0,10))
-lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+# lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)], n=1000, adj=2), col="green", 
       lwd=2)
 
 hist(out.comp.full$beta.save[3,-(1:n.burn)], prob=TRUE, breaks=60, main="", 
      xlab=bquote(beta[2]), ylim = c(0,10))
-lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+# lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
 
@@ -681,10 +679,6 @@ ggplot() +
   geom_sf(data = seal.locs, size = 0.5, color = "red") +
   theme(axis.title = element_blank())
 dev.off()
-
-
-# --- Spatial Count Summary ----------------------------------------------------
-
 
 
 # --- L-function p-value -------------------------------------------------------

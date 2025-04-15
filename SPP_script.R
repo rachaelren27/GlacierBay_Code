@@ -5,7 +5,6 @@ library(here)
 library(tidyverse)
 library(terra)
 library(raster)
-# library(hilbertSimilarity)
 library(geosphere)
 library(tictoc)
 library(vioplot)
@@ -26,25 +25,34 @@ load(here("SPP_script.RData"))
 set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
-path <- here("NPS_data", "HARBORSEAL_2007", "seal_locations_final",
-             "nonpup_locs")
-seal.locs.20070813 <- st_read(dsn = path, layer = "JHI_20070813_nonpup_locs")
+year <- "2007"
+date <- "20070618"
 
-path <- here("NPS_data", "HARBORSEAL_2007", "footprints")
-footprint.20070813 <- st_read(dsn = path, layer = "JHI_20070813_footprint")
+path <- here("NPS_data", paste0("HARBORSEAL_", year), "seal_locations_final",
+             "pup_locs")
+seal.locs <- st_read(dsn = path, layer = paste0("JHI_", date, "_pup_locs"))
 
-path <- here("NPS_data", "HARBORSEAL_2007", "survey_polygons")
-survey.poly.20070813 <- st_read(dsn = path, layer = "JHI_20070813_surveyboundary")
+path <- here("NPS_data", paste0("HARBORSEAL_", year), "footprints")
+footprint <- st_read(dsn = path, layer =  paste0("JHI_", date, "_footprint"))
+
+path <- here("NPS_data", paste0("HARBORSEAL_", year), "survey_polygons")
+survey.poly <- st_read(dsn = path, layer = paste0("JHI_", date, "_surveyboundary"))
 
 # convert CRS
-survey.poly <- st_transform(survey.poly.20070813$geometry, 
+survey.poly <- st_transform(survey.poly$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
 
-seal.locs <- st_transform(seal.locs.20070813$geometry,
+seal.locs <- st_transform(seal.locs$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
 seal.mat <- as.matrix(st_coordinates(seal.locs))
 
-footprint <- st_transform(footprint.20070813$geometry, 
+# plot seals
+ggplot() +
+  geom_sf(data = survey.poly) + 
+  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.5) + 
+  labs(title = date)
+
+footprint <- st_transform(footprint$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
 
 # crop footprint
@@ -483,38 +491,6 @@ out.pg.vb <- logit_CAVI(X.pg, y.binary, prior, tol = 0.001)
 toc() # 1284 iterations, 5.5 sec
 
 
-# --- SVGD ---------------------------------------------------------------------
-source(here("GlacierBay_Code", "SVGD.R"))
-
-n.particles <- 90
-
-# fit glm for initial value
-X.pg.df <- as.data.frame(cbind(y.binary, X.pg))
-colnames(X.pg.df) <- c("y", "intercept", "bath", "glac.dist")
-beta.glm <- coef(glm(y ~ bath + glac.dist, data = X.pg.df,
-                     family = binomial(link = "logit")))
-
-beta.init <- t(rmvn(n.particles, mu = beta.glm, sigma = diag(p)))
-
-mu.beta <- rep(0.001, p)
-Sigma.beta <- diag(rep(10, p))
-Sigma.beta.inv <- solve(Sigma.beta)
-n.iter <- 1000
-
-tic()
-SVGD.out <- SVGD(beta.init, 0.0001, n.iter, X.pg, y.binary, mu.beta, Sigma.beta.inv)
-toc() # 52 seconds
-
-SVGD.save <- c()
-for(k in 1:n.iter){
-  SVGD.save[k] <- mean(SVGD.out[[k]][,1])
-}
-plot(SVGD.save)
-
-apply(SVGD.out[[n.iter]], 1, mean)
-apply(SVGD.out[[n.iter]], 1, sd)
-
-
 # --- 2nd stage - compute lambda integrals -------------------------------------
 beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
 W.win.full <- out.bern.ELM$W.full[win.idx,]
@@ -625,127 +601,6 @@ sd(N.save)
 quantile(N.save, c(0.025, 0.975))
 
 
-# --- IWLR ---------------------------------------------------------------------
-w <- 5^(1-y.binary)
-boosted.ipp <- glm(y.binary~., family="binomial", weights=w,
-                   data = as.data.frame(X.pg[,-1]))
-
-# test weights
-beta.hat <- coef(boosted.ipp)
-y_i.hat <- (tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(w*n.bg))/
-  (1 + tot.win.area*exp(beta.hat[1] + X.pg[,-1]%*%beta.hat[-1])/(w*n.bg))
-max(y_i.hat) # 1.8e-15
-
-# compare point estimates and uncertainty
-beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
-apply(beta.save,1,mean)
-boosted.coef <- coef(boosted.ipp)[-1]
-
-apply(beta.save,1,sd)
-summary(boosted.ipp)$coefficients[-1, 2]
-
-t(apply(beta.save,1,quantile,c(0.025,.975)))
-boosted.ci <- confint(boosted.ipp)
-
-boosted.iqr <- confint(boosted.ipp, level = 0.5)[-1,]
-boosted.range1 <- boosted.coef[1] + c(-1,1)*(1.5*(boosted.iqr[1,2] - boosted.iqr[1,1])/2)
-
-
-## Compare frequentist IWLR vs complete likelihood
-# beta_1
-layout(matrix(1:2,1,2))
-boxplot(
-  list(
-    "Boosted" = c(boosted.range1[1], boosted.iqr[1,1], boosted.coef[1],
-                  boosted.iqr[1,2], boosted.range1[2]),  
-    "Complete Posterior" =  out.comp.full$beta.save[1,-(1:n.burn)]
-  ),
-  names = c("Freq", "Complete"),
-  ylim = c(-3.5, -2),
-  main = expression(beta[1] * " (Bathymetry)"),
-  range = 0,
-  whisklty = 0,
-  staplelty = 0
-)
-# beta_2
-boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
-
-boxplot(
-  list(
-    "Boosted" = c(boosted.range2[1], boosted.iqr[2,1], boosted.coef[2],
-                  boosted.iqr[2,2], boosted.range2[2]),  
-    "Complete Posterior" =  out.comp.full$beta.save[2,-(1:n.burn)]
-  ),
-  names = c("Freq", "Complete"),
-  ylim = c(-8, -6.5),
-  main = expression(beta[2] * " (Glacier Distance)"),
-  range = 0,
-  whisklty = 0,
-  staplelty = 0
-)
-
-
-## Compare frequentist vs Bayesian PG DA
-# beta_1
-layout(matrix(1:2,1,2))
-boxplot(
-  list(
-    "Boosted" = c(boosted.range1[1], boosted.iqr[1,1], boosted.coef[1],
-                  boosted.iqr[1,2], boosted.range1[2]),  
-    "Complete Posterior" =  out.pg$beta[2,-(1:n.burn)] 
-  ),
-  names = c("Freq", "PG DA"),
-  ylim = c(-3.5, -2),
-  main = expression(beta[1] * " (Bathymetry)"),
-  range = 0,
-  whisklty = 0,
-  staplelty = 0
-)
-# beta_2
-boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
-
-boxplot(
-  list(
-    "Boosted" = c(boosted.range2[1], boosted.iqr[2,1], boosted.coef[2],
-                  boosted.iqr[2,2], boosted.range2[2]),  
-    "Complete Posterior" =  out.pg$beta[3,-(1:n.burn)]
-  ),
-  names = c("Freq", "PG DA"),
-  ylim = c(-8.5, -6.5),
-  main = expression(beta[2] * " (Glacier Distance)"),
-  range = 0,
-  whisklty = 0,
-  staplelty = 0
-)
-
-
-## Compare complete likelihood vs three-stage IWLR
-layout(matrix(1:2,1,2))
-boxplot(
-  list(
-    "IWLR PG DA" = out.cond.pg3$beta.save[1,-(1:n.burn)], 
-    "Complete" =  out.comp.full$beta.save[1,-(1:n.burn)]
-  ),
-  names = c("ILWR" , "Complete"),
-  ylim = c(-3.5, -2),
-  main = expression(beta[1] * " (Bathymetry)"),
-  range = 0
-)
-# beta_2
-boosted.range2 <- boosted.coef[2] + c(-1,1)*(1.5*(boosted.iqr[2,2] - boosted.iqr[2,1])/2)
-
-boxplot(
-  list(
-    "IWLR PG DA" = out.cond.pg3$beta.save[2,-(1:n.burn)], 
-    "Complete" =  out.comp.full$beta.save[2,-(1:n.burn)]
-  ),
-  names = c("IWLR", "Complete"),
-  ylim = c(-8.5, -6.5),
-  main = expression(beta[2] * " (Glacier Distance)"),
-  range = 0
-)
-
-
 # --- Posterior Intensity Function ---------------------------------------------
 out.comp.esn <- out.cond.pg3
 beta.0.save <- out.comp.esn$beta.0.save
@@ -828,7 +683,18 @@ ggplot() +
 dev.off()
 
 
+# --- Spatial Count Summary ----------------------------------------------------
+
+
+
 # --- L-function p-value -------------------------------------------------------
+## compute L-function for observed data
+obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
+obs.L <- Linhom(obs.ppp)
+plot(obs.L)
+# lines(x = obs.L$r, y = obs.L$theo)
+
+## compute L-function for 
 out.comp.esn <- out.comp.esn.list[[14]]
 beta.0.save <- out.comp.esn$beta.0.save[-(1:n.burn)]
 beta.save <- out.comp.esn$beta.save[,-(1:n.burn)]
@@ -883,13 +749,4 @@ sim.points.list <- foreach(k = 1:100) %dopar% {
 
 stopCluster(cl)
 
-ggplot() + 
-  geom_sf(data = survey.poly) +
-  # geom_tile(data = lam.full.df, aes(x = x, y = y, 
-  #  fill = V3), color = NA) + 
-  geom_sf(data = footprint) + 
-  labs(color = "lambda") +
-  geom_point(aes(x = sim.point[[1]][,1], y = sim.point[[1]][,2]),
-             fill = sim.point[[2]], size = 0.2) +
-  geom_sf(data = seal.locs, size = 0.2, color = "red") +
-  theme(axis.title = element_blank())
+

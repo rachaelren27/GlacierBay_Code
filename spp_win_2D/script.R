@@ -5,21 +5,21 @@ library(raster)
 library(spatstat)
 library(tictoc)
 library(here)
-library(gbm3)
-library(patchwork)
-library(VGAM)
+library(viridis)
+library(rstanarm)
+library(pgdraw)
 
 load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
 set.seed(1234)
 
 # --- Simulate 2D data ---------------------------------------------------------
 # set domain
-x.domain <- c(0,0.9)
-y.domain <- c(0,0.9)
+x.domain <- c(0,1.05)
+y.domain <- c(0,1.05)
 
 # define the coordinates for window squares
-win.length <- 0.1 
-gap <- 0.1
+win.length <- 0.2
+gap <- 0.05
 domain.length <- x.domain[2] - x.domain[1]
 coords <- expand.grid(x = seq(gap, domain.length - win.length - gap, by = win.length + gap), 
                       y = seq(gap, domain.length - win.length - gap, by = win.length + gap))
@@ -157,12 +157,16 @@ n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
 out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,n.mcmc,0.1,0.1)
-toc() # 6.568 sec
+toc() # 8.632 sec
 
 # discard burn-in
 n.burn <- 0.1*n.mcmc
-beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
-beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
+beta.0.save <- out.comp.full$beta.0.save
+beta.save <- out.comp.full$beta.save
+
+effectiveSize(beta.0.save)
+effectiveSize(beta.save[1,])
+effectiveSize(beta.save[2,])
 
 # trace plot
 layout(matrix(1:2,2,1))
@@ -177,19 +181,19 @@ apply(beta.save.full,2,mean)
 apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
-# # posterior for N
-# N.comp.save <- rep(0, n.mcmc - n.burn)
-# 
-# for(k in 1:(n.mcmc - n.burn)){
-#   if(k%%10000==0){cat(k," ")}
-#   beta.0.tmp=beta.0.save[k]
-#   beta.tmp=beta.save[,k]
-#   lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
-#   N.comp.save[k]=n+rpois(1,lam.nowin.int)
-# };cat("\n")
-# 
-# hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
-# abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
+# posterior for N
+N.comp.save <- rep(0, n.mcmc - n.burn)
+
+for(k in 1:(n.mcmc - n.burn)){
+  if(k%%10000==0){cat(k," ")}
+  beta.0.tmp=beta.0.save[k]
+  beta.tmp=beta.save[,k]
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp))
+  N.comp.save[k]=n+rpois(1,lam.nowin.int)
+};cat("\n")
+
+hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
+abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 
 # --- Fit comp. likelihood w/ ESN ----------------------------------------------
@@ -226,7 +230,7 @@ effectiveSize(out.cond.full$beta.save[2,]) # 463
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 50000
+n.bg <- 10000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 plot(domain)
@@ -241,16 +245,18 @@ y.bern[1:n] <- 1
 
 bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
 out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
-                          iter = 100000, chains = 1)
+                          iter = 100000, chains = 1) # 75 sec
 
-
+out.bern.cond <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df)
+beta.glm <- coef(out.bern.cond)[-1]
+se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
 
 # --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
 X.pg <- cbind(rep(1, nrow(X.bern)), X.bern)
 p <- ncol(X.pg)
-mu.beta <- c(-5,0,0)
-sigma.beta <- diag(10, p)
+mu.beta <- rep(0, p)
+sigma.beta <- diag(100, p)
 
 # # plot beta density
 # beta = seq(-10,10,length.out = 1000)
@@ -262,10 +268,11 @@ sigma.beta <- diag(10, p)
 
 # w <- 10^(1-y.bern)
 # w <- rep(1, length(y.bern))
+
 tic()
 beta.save.pg <- polya_gamma(y.bern, X.pg,
                             mu.beta, sigma.beta, n.mcmc)
-toc() # 236 sec
+toc() # n.bg = 1000: 217 sec
 
 beta.0.save <- beta.save.pg$beta[1,]
 beta.save <- beta.save.pg$beta[2:3,]
@@ -279,56 +286,14 @@ beta.save <- beta.save.pg$beta[2:3,]
 
 # plot(beta.save.pg$beta[1,], type = "l")
 
-plot(beta.save.pg$beta[3,], type = "l")
-abline(h=1,col=rgb(0,1,0,.8),lty=2)
-effectiveSize(beta.save.pg$beta[3,]) # 2326
-
-plot(beta.save.pg$beta[2,], type = "l")
-abline(h=2,col=rgb(0,1,0,.8),lty=2)
-effectiveSize(beta.save.pg$beta[2,]) # 2111
+plot(beta.0.save, type = "l")
 
 matplot(t(beta.save.pg$beta[-1,]),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
-# prepare for second stage
-# beta.0.precise <- rnorm(n.mcmc, mean = 3.7, sd = 1)
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], beta.0.save = rnorm(n.mcmc, 0, 10),
-                    n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
-
-
-# --- PG VB (CAVI) -------------------------------------------------------------
-source(here("GlacierBay_Code", "PG_VB.R"))
-
-mu.beta <- rep(0.0001, p)
-sigma.beta <- diag(100, p)
-
-n.iter <- 500
-
-tic()
-out.cond.pg.vb <- PG_VB(y.bern, X.pg, mu.beta, sigma.beta, n.iter)
-toc()
-
-sigma.beta.vb <- matrix(nrow = n.iter, ncol = 2)
-for(i in 1:n.iter){
-  V_save <- out.cond.pg.vb$V_save[[i]]
-  sigma.beta.vb[i,1] <- V_save[2,2]
-  sigma.beta.vb[i,2] <- V_save[3,3]
-}
-plot(sigma.beta.vb[,1])
-plot(sigma.beta.vb[,2])
-
-mu.beta.vb <- out.cond.pg.vb$m_save[-1,n.iter]
-sigma.beta.vb <- out.cond.pg.vb$V_save[[n.iter]][-1,-1]
-
-# samples from VB 
-beta.vb <- mvnfast::rmvn(n.mcmc, mu.beta.vb, sigma.beta.vb)
-
-hist(beta.vb[,1])
-hist(beta.vb[,2])
-
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
-beta.save <- beta.save.pg$beta[2:3,]
+beta.save <- beta.save.pg$beta[-1,]
 # theta.save <- rep(0,n.mcmc)
 lam.int.save <- c()
 
@@ -361,8 +326,12 @@ out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
 # toc()
 
 # discard burn-in
-beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+beta.save <- out.cond.pg3$beta.save
+beta.0.save <- out.cond.pg3$beta.0.save
+
+effectiveSize(beta.0.save)
+effectiveSize(beta.save[1,])
+effectiveSize(beta.save[2,])
 
 layout(matrix(1:2,2,1))
 plot(beta.0.save,type="l")
@@ -428,21 +397,27 @@ effectiveSize(beta.save[2,]) # 744
 # out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,win.area,n.mcmc,0.1,0.1)
 
 layout(matrix(1:3,1,3))
-hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
-lines(density(out.cond.2.full$beta.0.save,n=1000),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)],n=1000),col="green",lwd=2)
-abline(v = 4, lwd = 2, lty = 2)
-hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
-     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
-lines(density(out.cond.2.full$beta.save[1,],n=1000),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)],n=1000),col="green",lwd=2)
-abline(v = 2, lwd = 2, lty = 2)
-hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
-     ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
-lines(density(out.cond.2.full$beta.save[2,],n=1000),col="red",lwd=2)
-lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)],n=1000),col="green",lwd=2)
-abline(v = 1, lwd = 2, lty = 2)
+# hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.0.save[-(1:n.burn)], n = 1000), col = "red", 
+     lwd = 2, ylim = c(0,1))
+lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)], n = 1000), col = "green", 
+      lwd = 2)
+abline(v = beta.0, lwd = 2, lty = 2)
+# hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.save[1,-(1:n.burn)], n = 1000), col = "red", 
+     lwd = 2, ylim = c(0,1))
+lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)], n = 1000), col = "green",
+      lwd = 2)
+abline(v = beta[1], lwd = 2, lty = 2)
+# hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.save[2,-(1:n.burn)], n = 1000), col = "red",
+     lwd = 2, ylim = c(0,1))
+lines(density(out.cond.pg3$beta.save[2, -(1:n.burn)], n=1000), col = "green",
+      lwd = 2)
+abline(v = beta[2], lwd = 2, lty = 2)
 # dev.off()
 
 # --- Posterior for N ----------------------------------------------------------

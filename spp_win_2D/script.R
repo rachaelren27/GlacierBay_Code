@@ -8,6 +8,8 @@ library(here)
 library(viridis)
 library(rstanarm)
 library(pgdraw)
+library(mvnfast)
+library(coda)
 
 load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
 set.seed(1234)
@@ -293,29 +295,25 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
+# using pg samples
 beta.save <- beta.save.pg$beta[-1,]
-# theta.save <- rep(0,n.mcmc)
 lam.int.save <- c()
 
 for(k in 1:n.mcmc){
   if(k%%1000==0){cat(k," ")}
   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-  # theta.save[k] <- rgamma(1, 0.01 + n, rate = 0.01 + lam.int)
 };cat("\n")
 
-# beta.0.save <- log(theta.save)
+# using glm samples
+beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm))
+lam.int.save.glm <- c()
 
-# plot(beta.0.save, type ="l")
+for(k in 1:n.mcmc){
+  if(k%%1000==0){cat(k," ")}
+  lam.int.save.glm[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[k,]))
+};cat("\n")
 
-# # compare marginal posterior
-# hist(out.comp.full$beta.0.save[-(1:1000)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
-#      ylim = c(0,1))
-# lines(density(beta.0.save[-(1:1000)],n=1000, adjust = 2),col="red",lwd=2)
-# lines(density(out.cond.pg2$beta.0.save[-(1:1000)],n=1000, adjust = 2),
-#       col="green",lwd=2)
-
-out.cond.pg <- list(beta.save = beta.save.pg$beta[-1,], 
-                    # beta.0.save = log(rgamma(n.mcmc, n + 0.001, 1.001)),
+out.cond.pg <- list(beta.save = t(beta.save), 
                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
                     lam.int.save = lam.int.save)
 

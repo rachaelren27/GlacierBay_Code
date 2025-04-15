@@ -8,11 +8,11 @@ spp.stg3.mcmc <- function(out){
   ###  Setup Variables
   ###
   
-  n=out$n
-  n.mcmc=out$n.mcmc
-  X.full=out$X.full
-  p=dim(X.full)[2]
-  ds=out$ds
+  n <- out$n
+  n.mcmc <- out$n.mcmc
+  X.full <- out$X.full
+  p <- dim(X.full)[2]
+  ds <- out$ds
   lam.int.save <- out$lam.int.save
   accept <- 0
   
@@ -20,17 +20,17 @@ spp.stg3.mcmc <- function(out){
   a <- 0.000001
   b <- 0.000001
   
-  beta.0.save=rep(0,n.mcmc)
-  beta.save=matrix(0,p,n.mcmc)
+  beta.0.save <- rep(0, n.mcmc)
+  beta.save <- matrix(0, p, n.mcmc)
   theta.lam.int.save <- rep(0, n.mcmc)
   
   # starting values
-  beta=c(out$beta.save[,n.mcmc])
+  beta <- c(out$beta.save[,n.mcmc])
   lam.int <- lam.int.save[n.mcmc]
   theta <- rgamma(1, a + n, b + lam.int)
   
   for(k in 1:n.mcmc){
-    if(k%%1000==0){cat(k," ")}
+    if(k %% 1000 == 0){cat(k, " ")}
     
     ###
     ###  Propose theta

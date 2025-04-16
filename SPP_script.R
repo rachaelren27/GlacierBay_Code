@@ -16,6 +16,7 @@ library(parallel)
 library(viridis)
 library(foreach)
 library(doParallel)
+library(latex2exp)
 
 load(here("SPP_script.RData"))
 set.seed(1234)
@@ -542,7 +543,7 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:4,1,4))
 # hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
-     xlab=bquote(beta[0]), ylim = c(0,10))
+     # xlab=bquote(beta[0]), ylim = c(0,10))
 lines(density(out.comp.full$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
@@ -554,7 +555,7 @@ lines(density(out.cond.pg3$beta.save[1,-(1:n.burn)], n=1000, adj=2), col="green"
       lwd=2)
 
 hist(out.comp.full$beta.save[2,-(1:n.burn)], prob=TRUE, breaks=60, 
-     main= "" , xlab=bquote(beta[2]), ylim = c(0,10))
+     main= "", xlab=bquote(beta[2]), ylim = c(0,10))
 # lines(density(out.bern.cond$beta[2,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)], n=1000, adj=2), col="green", 
       lwd=2)
@@ -564,6 +565,44 @@ hist(out.comp.full$beta.save[3,-(1:n.burn)], prob=TRUE, breaks=60, main="",
 # lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
+
+## compare joint posterior (pairwise)
+layout(matrix(1:6,2,3))
+# beta_0 vs beta_1
+plot(x = out.comp.full$beta.0.save[-(1:n.burn)], y = out.comp.full$beta.save[1,-(1:n.burn)],
+     xlab = TeX('$\\beta_0$'), ylab = TeX('$\\beta_1$'))
+points(x = out.cond.pg3$beta.0.save[-(1:n.burn)], y = out.cond.pg3$beta.save[1,-(1:n.burn)],
+       col = "red")
+
+# beta_0 vs beta_2
+plot(x = out.comp.full$beta.0.save[-(1:n.burn)], y = out.comp.full$beta.save[2,-(1:n.burn)],
+     xlab = TeX('$\\beta_0$'), ylab = TeX('$\\beta_2$'))
+points(x = out.cond.pg3$beta.0.save[-(1:n.burn)], y = out.cond.pg3$beta.save[2,-(1:n.burn)],
+       col = "red")
+
+#beta_0 vs beta_3
+plot(x = out.comp.full$beta.0.save[-(1:n.burn)], y = out.comp.full$beta.save[3,-(1:n.burn)],
+     xlab = TeX('$\\beta_0$'), ylab = TeX('$\\beta_2$'))
+points(x = out.cond.pg3$beta.0.save[-(1:n.burn)], y = out.cond.pg3$beta.save[3,-(1:n.burn)],
+       col = "red")
+
+# beta_1 vs beta_2
+plot(x = out.comp.full$beta.save[1,-(1:n.burn)], y = out.comp.full$beta.save[2,-(1:n.burn)],
+     xlab = TeX('$\\beta_0$'), ylab = TeX('$\\beta_3$'))
+points(x = out.cond.pg3$beta.save[1,-(1:n.burn)], y = out.cond.pg3$beta.save[2,-(1:n.burn)],
+       col = "red")
+
+# beta_1 vs beta_3
+plot(x = out.comp.full$beta.save[1,-(1:n.burn)], y = out.comp.full$beta.save[3,-(1:n.burn)],
+     xlab = TeX('$\\beta_1$'), ylab = TeX('$\\beta_2$'))
+points(x = out.cond.pg3$beta.save[1,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-(1:n.burn)],
+       col = "red")
+
+# beta_2 vs beta_3
+plot(x = out.comp.full$beta.save[2,-(1:n.burn)], y = out.comp.full$beta.save[3,-(1:n.burn)],
+     xlab = TeX('$\\beta_2$'), ylab = TeX('$\\beta_3$'))
+plot(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-(1:n.burn)],
+       col = "red", xlab = TeX('$\\beta_2$'), ylab = TeX('$\\beta_3$'))
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples

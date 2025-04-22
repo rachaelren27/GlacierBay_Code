@@ -1,18 +1,13 @@
 spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
-  # theta.tune/beta.0.tune
-  
-  #
-  #  1-D SPP w/ complete data (s and n) likelihood and windowing
-  #
   
   ###
   ###  Subroutine 
   ###
   
-  spp.loglik <- function(theta,beta,X,X.full,ds,n){ # pass in X.full, ds
+  spp.loglik <- function(theta,beta,X,X.full,ds,n){
     llam=log(theta)+X%*%beta
     lam.int=sum(theta*exp(log(ds)+X.full%*%beta))
-    sum(llam)-lam.int-lfactorial(n) # check if we can delete lfactorial(n)
+    sum(llam)-lam.int-lfactorial(n)
   }
   
   ###

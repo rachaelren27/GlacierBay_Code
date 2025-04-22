@@ -11,7 +11,7 @@ library(pgdraw)
 library(mvnfast)
 library(coda)
 
-load(here("GlacierBay_Code","spp_win_2D", "script.RData"))
+load(here("GlacierBay_Code","spp_win_2D", "sim2.RData"))
 set.seed(1234)
 
 # --- Simulate 2D data ---------------------------------------------------------
@@ -247,13 +247,35 @@ y.bern[1:n] <- 1
 
 # Bayesian
 bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
-out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
-                          iter = 100000, chains = 1) # 75 sec
+out.bayes.glm <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
+                          iter = n.mcmc, warmup = 0.1*n.mcmc, chains = 1) # 75 sec
+beta.save.glm.bayes <- as.matrix(out.bayes.glm)
 
 # non-Bayesian
 out.bern.cond <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df)
 beta.glm <- coef(out.bern.cond)[-1]
 se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
+# sample from glm estimated density
+beta.save.glm <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2))
+
+## compare Bayesian vs non-Bayesian first-stage samples
+layout(matrix(1:2,1,2))
+plot(density(beta.save.bayes[,2], n = 1000), col = "red", 
+     lwd = 2, ylim = c(0,1))
+lines(density(beta.save[,1], n = 1000), col = "green",
+      lwd = 2)
+abline(v = beta[1], lwd = 2, lty = 2)
+plot(density(beta.save.bayes[,3], n = 1000), col = "red",
+     lwd = 2, ylim = c(0,1))
+lines(density(beta.save[,2], n=1000), col = "green",
+      lwd = 2)
+abline(v = beta[2], lwd = 2, lty = 2)
+
+# compare joint posterior cross-sections
+plot(x = beta.save.bayes[,2], y = beta.save.bayes[,3],
+     xlab = TeX('$\\beta_1$'), ylab = TeX('$\\beta_2$'))
+points(x = beta.save[,1], y = beta.save[,2],
+       col = "red")
 
 # --- Fit SPP w/ cond. likelihood (Polya-Gamma 1st stage) ----------------------
 source(here("GlacierBay_Code", "Polya_Gamma.R"))
@@ -297,8 +319,7 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 
 # --- 2nd stage: compute lambda integrals --------------------------------------
-# using pg samples
-beta.save <- beta.save.pg$beta[-1,]
+beta.save <- beta.save.pg$beta[,-1]
 lam.int.save <- c()
 
 for(k in 1:n.mcmc){
@@ -306,18 +327,10 @@ for(k in 1:n.mcmc){
   lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
 };cat("\n")
 
-# using glm samples
-beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2))
-lam.int.save.glm <- c()
-
-for(k in 1:n.mcmc){
-  if(k%%1000==0){cat(k," ")}
-  lam.int.save.glm[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[k,]))
-};cat("\n")
-
-out.cond.pg <- list(beta.save = t(beta.save), 
+out.cond.pg <- list(beta.save = beta.save, 
                     n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
                     lam.int.save = lam.int.save)
+
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -325,7 +338,6 @@ source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
 out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg)
 # toc()
 
-# discard burn-in
 beta.save <- out.cond.pg3$beta.save
 beta.0.save <- out.cond.pg3$beta.0.save
 

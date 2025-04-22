@@ -23,7 +23,7 @@ set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
 year <- "2007"
-date <- "20070618"
+date <- "20070620"
 
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "seal_locations_final",
              "pup_locs")
@@ -43,17 +43,18 @@ seal.locs <- st_transform(seal.locs$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
 seal.mat <- as.matrix(st_coordinates(seal.locs))
 
-# plot seals
-ggplot() +
-  geom_sf(data = survey.poly) + 
-  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.5) + 
-  labs(title = date)
-
 footprint <- st_transform(footprint$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
 
 # crop footprint
 footprint <- st_intersection(footprint, survey.poly)
+
+# plot seals
+ggplot() +
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) +
+  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.5) + 
+  labs(title = date)
 
 # prepare windows
 survey.poly.mat <- survey.poly[[1]][[1]]
@@ -393,13 +394,14 @@ out.bern.cond <- glm(y ~ ice + bath + glac.dist, data = logit.obs.df,
                      family=binomial(link="logit"))
 toc() # 0.17
 beta.glm <- coef(out.bern.cond)[-1]
-se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
+cov.glm <- vcov(out.bern.cond)[-1,-1]
 
-# # vanilla Bayesian glm
-# tic()
-# out.bern.cond <- stan_glm(y ~ ice + bath + glac.dist, data = logit.obs.df, 
-#                      family=binomial(link="logit"), iter = 100000, chains = 1)
-# toc()
+# vanilla Bayesian glm
+tic()
+out.bern.cond.bayes <- stan_glm(y ~ ice + bath + glac.dist, data = logit.obs.df,
+                                family=binomial(link="logit"), iter = n.mcmc,
+                                warmup = 0.1*n.mcmc, chains = 1)
+toc()
 
 
 # # vanilla logistic bayesreg
@@ -492,7 +494,7 @@ dev.off()
 beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
 W.win.full <- out.bern.ELM$W.full[win.idx,]
 
-beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2))
+beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = cov.glm)
 lam.int.save <- rep(0, n.mcmc)
 
 cl <- makeCluster(detectCores()-1)
@@ -542,9 +544,9 @@ apply(beta.save.full,2,quantile,c(0.025,.975))
 
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:4,1,4))
-# hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
-     # xlab=bquote(beta[0]), ylim = c(0,10))
-lines(density(out.comp.full$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
+hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
+     xlab=bquote(beta[0]), ylim = c(0,10))
+# lines(density(out.comp.full$beta.0.save[-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.0.save[-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
 
@@ -561,7 +563,7 @@ lines(density(out.cond.pg3$beta.save[2,-(1:n.burn)], n=1000, adj=2), col="green"
       lwd=2)
 
 hist(out.comp.full$beta.save[3,-(1:n.burn)], prob=TRUE, breaks=60, main="", 
-     xlab=bquote(beta[2]), ylim = c(0,10))
+     xlab=bquote(beta[3]), ylim = c(0,10))
 # lines(density(out.bern.cond$beta[3,-(1:n.burn)],n=1000,adj=2),col="red",lwd=2)
 lines(density(out.cond.pg3$beta.save[3,-(1:n.burn)], n=1000, adj=2), col="green",
       lwd=2)
@@ -601,8 +603,8 @@ points(x = out.cond.pg3$beta.save[1,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-
 # beta_2 vs beta_3
 plot(x = out.comp.full$beta.save[2,-(1:n.burn)], y = out.comp.full$beta.save[3,-(1:n.burn)],
      xlab = TeX('$\\beta_2$'), ylab = TeX('$\\beta_3$'))
-plot(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-(1:n.burn)],
-       col = "red", xlab = TeX('$\\beta_2$'), ylab = TeX('$\\beta_3$'))
+points(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-(1:n.burn)],
+       col = "red")
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples

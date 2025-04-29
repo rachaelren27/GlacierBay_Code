@@ -80,7 +80,7 @@ beta.0 <- 5
 lam.full <- exp(beta.0+X.full%*%beta)
 lam.max <- max(lam.full)
 
-# full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
+full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
 # # plot covariates and lambda
 # ggplot(data = full.df, aes(x = x, y = y, col = x)) + 
 #   geom_point(size = 0.5)
@@ -92,8 +92,8 @@ lam.max <- max(lam.full)
 #   labs(fill = "lambda")
 # 
 # # create full raster
-# full.df <- full.df %>% rename(z = lam.full)
-# full.raster <- rasterFromXYZ(full.df)
+full.df <- full.df %>% rename(z = lam.full)
+full.raster <- rasterFromXYZ(full.df)
 # plot(full.raster, color = viridis(100))
 
 # simulate observed points
@@ -130,11 +130,11 @@ X.win=X.obs[obs.win.idx,]
 X.win.full=X.full[full.win.idx,]
 X.nowin.full=X.full[-full.win.idx,]
 
-# # plot windowed data
-# obs.df <- as.data.frame(s.obs)
-# ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
-#                           col = factor(obs.win))) +
-#   geom_point()
+# plot windowed data
+obs.df <- as.data.frame(s.obs)
+ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
+                          col = factor(obs.win))) +
+  geom_point()
 # 
 # plot(domain)
 # plot(combined.window, add = TRUE)
@@ -212,7 +212,7 @@ y.bern <- rep(0, n + n.bg)
 y.bern[1:n] <- 1
 bern.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
 
-# --- Bayesian GLM -------------------------------------------------------------
+# --- Bayesian GLM (logistic) --------------------------------------------------
 # stage 1
 out.bayes.glm <- stan_glm(y ~ x1 + x2, family = binomial(link="logit"), 
                           data = bern.df, iter = n.mcmc, warmup = n.burn,
@@ -259,7 +259,7 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 
 
-# --- Non-Bayesian GLM (exact) -------------------------------------------------
+# --- Non-Bayesian GLM (exact, logistic) ---------------------------------------
 ## stage 1
 out.glm <- glm(y ~ x1 + x2, family = binomial(link="logit"), data = bern.df)
 beta.glm <- coef(out.glm)[-1]
@@ -306,7 +306,8 @@ abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
 matplot(t(beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
-# --- Non-Bayesian GLM (approx.) -----------------------------------------------
+
+# --- Non-Bayesian GLM (approx., logistic) -------------------------------------
 # stage 1
 out.glm <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.df)
 beta.glm <- coef(out.glm)[-1]
@@ -328,9 +329,9 @@ out.glm.approx2 <- list(beta.save = beta.save,
 
 # stage 3
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
-out.glm.approx3 <- spp.stg3.mcmc(out.glm.approx.2)
+out.glm.approx3 <- spp.stg3.mcmc(out.glm.approx2)
 
-beta.save <- out.glm.approx.3$beta.save
+beta.save <- out.glm.approx3$beta.save
 beta.0.save <- out.glm.approx3$beta.0.save
 
 effectiveSize(beta.0.save)
@@ -363,6 +364,58 @@ abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 #        col = "red")
 
 
+# --- Non-Bayesian GLM (exact, Poisson) ----------------------------------------
+obs.cell <- cellFromXY(full.raster, s.win)
+row.counts <- table(factor(obs.cell, levels = 1:nrow(s.full)))
+X.pois <- cbind(X.full, row.counts)[full.win.idx,]
+pois.df <- data.frame(x1 = X.pois[,1], x2 = -X.pois[,2], y = X.pois[,3])
+
+out.pois.glm <- glm(y ~ x1 + x2, data = pois.df, family = poisson(link = "log"))
+beta.glm <- coef(out.pois.glm)[-1]
+se.glm <- summary(out.pois.glm)$coefficients[-1, 2]
+# sample from glm estimated density
+beta.save <- t(mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2)))
+
+## stage 2
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+tic()
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + X.win.full%*%beta.save[,k]))
+  return(lam.int)
+}
+
+X.beta.sum.save <- foreach(k = 1:ncol(beta.save)) %dopar% {
+  X.beta.sum <- sum(X.win%*%beta.save[,k])
+  return(X.beta.sum)
+}
+toc() # 31 sec
+
+stopCluster(cl) 
+
+out.glm2 <- list(beta.save = beta.save, mu.beta = beta.glm, sigma.beta = diag(se.glm^2),
+                 n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
+                 X.beta.sum.save = X.beta.sum.save, lam.int.save = lam.int.save)
+
+## stage 3
+source(here("GlacierBay_Code", "spp_win_2D", "spp.stg3.mcmc.nb.R"))
+out.glm3 <- spp.stg3.mcmc.nb(out.glm2)
+
+beta.save <- out.glm3$beta.save
+beta.0.save <- out.glm3$beta.0.save
+
+effectiveSize(beta.0.save)
+effectiveSize(beta.save[1,])
+effectiveSize(beta.save[2,])
+
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(beta.save),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+
 # --- Beta Posterior Summary ---------------------------------------------------
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -388,3 +441,35 @@ sd(N.comp.save)
 
 hist(N.comp.save,breaks=50,prob=TRUE,main="",xlab="N")
 abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
+
+# --- Compare marginal posteriors ----------------------------------------------
+
+layout(matrix(1:3,1,3))
+# hist(out.comp.full$beta.0.save[-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[0]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.0.save[-(1:n.burn)], n = 1000), col = "red", 
+     lwd = 2, ylim = c(0,10))
+lines(density(out.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "green", 
+      lwd = 2)
+lines(density(out.glm.approx3$beta.0.save[-(1:n.burn)], n = 1000), col = "blue", 
+      lwd = 2)
+abline(v = beta.0, lwd = 2, lty = 2)
+# hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.save[1,-(1:n.burn)], n = 1000), col = "red", 
+     lwd = 2, ylim = c(0,10))
+lines(density(out.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "green",
+      lwd = 2)
+lines(density(out.glm.approx3$beta.save[1,-(1:n.burn)], n = 1000), col = "blue",
+      lwd = 2)
+abline(v = beta[1], lwd = 2, lty = 2)
+# hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
+#      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
+plot(density(out.comp.full$beta.save[2,-(1:n.burn)], n = 1000), col = "red",
+     lwd = 2, ylim = c(0,10))
+lines(density(out.glm3$beta.save[2, -(1:n.burn)], n=1000), col = "green",
+      lwd = 2)
+lines(density(out.glm.approx3$beta.save[2, -(1:n.burn)], n=1000), col = "blue",
+      lwd = 2)
+abline(v = beta[2], lwd = 2, lty = 2)
+# dev.off()

@@ -699,7 +699,7 @@ lam.superpop.nonwin.mat <- na.omit(cbind(s.superpop.nonwin, lam.superpop.nonwin)
 lam.superpop.nonwin.df <- as.data.frame(lam.superpop.nonwin.mat)
 colnames(lam.superpop.nonwin.df) <- c("x", "y", "fill")
 
-obs.idx=rbinom(M0,1,lam.superpop.nonwin.mat[,3]/lam.max)==1
+obs.idx=rbinom(M0, 1, lam.superpop.nonwin.mat[,3]/lam.max)==1
 s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points 
 lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
 N0.pred=nrow(s.obs)

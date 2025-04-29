@@ -12,7 +12,7 @@ library(mvnfast)
 library(coda)
 
 load(here("GlacierBay_Code","spp_win_2D", "sim1.RData"))
-set.seed(1234)
+set.seed(100)
 
 # --- Simulate 2D data ---------------------------------------------------------
 # set domain
@@ -20,8 +20,8 @@ x.domain <- c(0,1.05)
 y.domain <- c(0,1.05)
 
 # get quadrature grid
-x.m <- 100
-y.m <- 100
+x.m <- 500
+y.m <- 500
 m <- x.m*y.m
 
 x.full <- seq(x.domain[1], x.domain[2], length.out = x.m)
@@ -41,24 +41,24 @@ X.full[,2] <- x2
 # set beta
 beta <- c(2,1)
 beta.0 <- 5
-lam.full <- exp(beta.0+X.full%*%beta)
+lam.full <- exp(beta.0 + X.full%*%beta)
 lam.max <- max(lam.full)
 
-full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
-# plot covariates and lambda
-ggplot(data = full.df, aes(x = x, y = y, col = x)) + 
-  geom_point(size = 0.5)
-ggplot(data = full.df, aes(x = x, y = y, col = y)) + 
-  geom_point(size = 0.5)
-
-ggplot() +
-  geom_tile(data = full.df, aes(x = x, y = y, fill = lam.full)) + 
-  labs(fill = "lambda")
-
-# create full raster
-full.df <- full.df %>% rename(z = lam.full)
-full.raster <- rasterFromXYZ(full.df)
-plot(full.raster, color = viridis(100))
+# full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
+# # plot covariates and lambda
+# ggplot(data = full.df, aes(x = x, y = y, col = x)) + 
+#   geom_point(size = 0.5)
+# ggplot(data = full.df, aes(x = x, y = y, col = y)) + 
+#   geom_point(size = 0.5)
+# 
+# ggplot() +
+#   geom_tile(data = full.df, aes(x = x, y = y, fill = lam.full)) + 
+#   labs(fill = "lambda")
+# 
+# # create full raster
+# full.df <- full.df %>% rename(z = lam.full)
+# full.raster <- rasterFromXYZ(full.df)
+# plot(full.raster, color = viridis(100))
 
 # simulate observed points
 M=rpois(1, lam.max) 
@@ -66,31 +66,31 @@ x.superpop <- runif(M, x.domain[1], x.domain[2])
 y.superpop <- runif(M, y.domain[1], y.domain[2])
 s.superpop <- cbind(x.superpop, y.superpop)
 X.superpop <- cbind(x.superpop, y.superpop)
-lam.superpop=exp(beta.0+X.superpop%*%beta)
+lam.superpop <- exp(beta.0 + X.superpop%*%beta)
 
-obs.idx=rbinom(M,1,lam.superpop/lam.max)==1
-s.obs=s.superpop[obs.idx,] # total observed points 
-X.obs=X.superpop[obs.idx,] 
+obs.idx <- rbinom(M,1,lam.superpop/lam.max) == 1
+s.obs <- s.superpop[obs.idx,] # total observed points 
+X.obs <- X.superpop[obs.idx,] 
 lam.obs <- lam.superpop[obs.idx]
-N=nrow(s.obs) # 218
+N <- nrow(s.obs) # 218
 
-# plot superpop lambda
-superpop.df <- as.data.frame(cbind(x.superpop, y.superpop, lam.superpop))
-ggplot(data = superpop.df, aes(x = x.superpop, y = y.superpop, col = lam.superpop)) + 
-  geom_point(size = 0.5)
+# # plot superpop lambda
+# superpop.df <- as.data.frame(cbind(x.superpop, y.superpop, lam.superpop))
+# ggplot(data = superpop.df, aes(x = x.superpop, y = y.superpop, col = lam.superpop)) +
+#   geom_point(size = 0.5)
 
 
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc=100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
 tic()
-out.comp.full=spp.comp.mcmc(s.win,X.win,X.win.full,ds,n.mcmc,0.1,0.1)
+out.comp.full <- spp.comp.mcmc(s.obs,X.obs,X.full,ds,n.mcmc,0.5,0.5)
 toc() # 8.632 sec
 
 # discard burn-in
 n.burn <- 0.1*n.mcmc
-beta.0.save <- out.comp.full$beta.0.save
-beta.save <- out.comp.full$beta.save
+beta.0.save <- out.comp.full$beta.0.save[-(1:n.burn)]
+beta.save <- out.comp.full$beta.save[,-(1:n.burn)]
 
 effectiveSize(beta.0.save)
 effectiveSize(beta.save[1,])
@@ -158,26 +158,22 @@ effectiveSize(out.cond.full$beta.save[2,]) # 463
 
 # --- Fit SPP w/ cond. likelihood Bernoulli GLM --------------------------------
 # sample background points
-n.bg <- 50000
-bg.pts <- rpoint(n.bg, win = combined.window)
-
-plot(domain)
-plot(combined.window, add = TRUE)
-points(bg.pts$x, bg.pts$y)
+n.bg <- 10000
+bg.pts <- cbind(x = runif(n.bg, max = 1.05), y = runif(n.bg, max = 1.05))
 
 # prepare X matrix
-X.bg <- cbind(bg.pts$x, bg.pts$y)
-X.bern <- rbind(X.win, X.bg)
-y.bern <- rep(0, n + n.bg)
-y.bern[1:n] <- 1
+X.bg <- bg.pts
+X.bern <- rbind(X.obs, X.bg)
+y.bern <- rep(0, N + n.bg)
+y.bern[1:N] <- 1
 
 # Bayesian
-bern.rsf.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
-out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df,
+bern.df <- data.frame(y = y.bern, x1 = X.bern[,1], x2 = X.bern[,2])
+out.bern.cond <- stan_glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.df,
                           iter = 100000, chains = 1) # 75 sec
 
 # non-Bayesian
-out.bern.cond <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.rsf.df)
+out.bern.cond <- glm(y ~ x1 + x2, family=binomial(link="logit"), data=bern.df)
 beta.glm <- coef(out.bern.cond)[-1]
 se.glm <- summary(out.bern.cond)$coefficients[-1, 2]
 

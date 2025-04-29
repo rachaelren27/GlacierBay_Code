@@ -1,8 +1,9 @@
-spp.stg3.mcmc <- function(out){
+spp.stg3.mcmc.nb <- function(out){
   
-  #
-  #  Second stage algorithm for fitting SPP model w/ unknown n before observed
-  #
+  spp.loglik <- function(X.beta.sum, lam.int, theta, ds, n){
+    theta.lam.int <- theta*lam.int
+    n*log(theta) + X.beta.sum - theta.lam.int - lfactorial(n)
+  }
   
   ###
   ###  Setup Variables
@@ -14,19 +15,26 @@ spp.stg3.mcmc <- function(out){
   p <- dim(X.full)[2]
   ds <- out$ds
   lam.int.save <- out$lam.int.save
+  X.beta.sum.save <- out$X.beta.sum.save
+  mu.beta <- out$mu.beta
+  sigma.beta <- out$sigma.beta
   accept <- 0
   
-  #gamma prior hyperparameters
+  # beta prior hyperparameters
+  mu.0 <- rep(0,p)
+  sig.0 <- 100*diag(p)
+  
+  # gamma prior hyperparameters
   a <- 0.000001
   b <- 0.000001
   
   beta.0.save <- rep(0, n.mcmc)
   beta.save <- matrix(0, p, n.mcmc)
-  theta.lam.int.save <- rep(0, n.mcmc)
   
   # starting values
   beta <- c(out$beta.save[,n.mcmc])
   lam.int <- lam.int.save[n.mcmc]
+  X.beta.sum <- X.beta.sum.save[[n.mcmc]]
   theta <- rgamma(1, a + n, b + lam.int)
   
   for(k in 1:n.mcmc){
@@ -44,17 +52,20 @@ spp.stg3.mcmc <- function(out){
     idx.star <- sample(1:n.mcmc,1)
     beta.star <- c(out$beta.save[,idx.star])
     lam.int.star <- lam.int.save[idx.star]
-    theta.lam.int.star <- theta*lam.int.star 
+    X.beta.sum.star <- X.beta.sum.save[[idx.star]]
     
-    theta.lam.int <- theta*lam.int
-    theta.lam.int.save[k] <- theta.lam.int
-      
-    mh.1 <- dpois(n, theta.lam.int.star, log = TRUE)
-    mh.2 <- dpois(n, theta.lam.int, log = TRUE)
+    mh.1 <- spp.loglik(X.beta.sum.star, lam.int.star, theta, ds, n) + 
+            sum(mvnfast::dmvn(t(beta.star), mu.0, sig.0, log=TRUE)) + 
+            sum(mvnfast::dmvn(t(beta), mu.beta, sigma.beta, log=TRUE))
+    
+    mh.2 <- spp.loglik(X.beta.sum, lam.int, theta, ds, n) + 
+            sum(mvnfast::dmvn(t(beta), mu.0, sig.0, log=TRUE)) + 
+            sum(mvnfast::dmvn(t(beta.star), mu.beta, sigma.beta, log=TRUE))
     
     if(exp(mh.1 - mh.2) > runif(1)){
       beta <- beta.star
       lam.int <- lam.int.star
+      X.beta.sum <- X.beta.sum.star
       accept <- accept + 1
     }
     
@@ -73,7 +84,6 @@ spp.stg3.mcmc <- function(out){
   ###  Write Output 
   ###
   
-  list(beta.save=beta.save, beta.0.save=beta.0.save, n.mcmc=n.mcmc,
-       theta.lam.int.save=theta.lam.int.save)
+  list(beta.save=beta.save, beta.0.save=beta.0.save, n.mcmc=n.mcmc)
   
 }

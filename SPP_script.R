@@ -399,7 +399,7 @@ cov.glm <- vcov(out.bern.cond)[-1,-1]
 # vanilla Bayesian glm
 tic()
 out.bern.cond.bayes <- stan_glm(y ~ ice + bath + glac.dist, data = logit.obs.df,
-                                family=binomial(link="logit"), iter = n.mcmc,
+                                family = binomial(link="logit"), iter = n.mcmc,
                                 warmup = 0.1*n.mcmc, chains = 1)
 toc()
 

@@ -353,6 +353,8 @@ beta.0.save <- log(theta.save)
 
 plot(beta.0.save, type ="l")
 
+
+
 # --- Fit SPP using cond. likelihood (glm stage 1) ------------------------
 # obtain background sample
 n.bg <- 100000

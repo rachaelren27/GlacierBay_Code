@@ -17,13 +17,15 @@ library(viridis)
 library(foreach)
 library(doParallel)
 library(latex2exp)
+library(geosphere)
+library(bayesreg)
 
 load(here("SPP_script.RData"))
 set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
 year <- "2007"
-date <- "20070620"
+date <- "20070621"
 
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "seal_locations_final",
              "pup_locs")
@@ -32,16 +34,23 @@ seal.locs <- st_read(dsn = path, layer = paste0("JHI_", date, "_pup_locs"))
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "footprints")
 footprint <- st_read(dsn = path, layer =  paste0("JHI_", date, "_footprint"))
 
-path <- here("NPS_data", paste0("HARBORSEAL_", year), "survey_polygons")
-survey.poly <- st_read(dsn = path, layer = paste0("JHI_", date, "_surveyboundary"))
+survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds")
 
 # convert CRS
 survey.poly <- st_transform(survey.poly$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
+survey.poly.mat <- survey.poly[[1]][[1]]
+survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
+                                     y=rev(survey.poly.mat[,2])))
 
 seal.locs <- st_transform(seal.locs$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
+
 seal.mat <- as.matrix(st_coordinates(seal.locs))
+seal.in.bounds <- inside.owin(x = seal.mat[,1],
+                              y = seal.mat[,2],
+                              w = survey.win)
+seal.mat <- seal.mat[seal.in.bounds,]
 
 footprint <- st_transform(footprint$geometry, 
                           CRS("+proj=longlat +datum=WGS84"))
@@ -49,18 +58,20 @@ footprint <- st_transform(footprint$geometry,
 # crop footprint
 footprint <- st_intersection(footprint, survey.poly)
 
-# plot seals
-ggplot() +
+# plot seal pups
+pdf(paste0(date, "_pups.pdf"))
+ggplot() + 
   geom_sf(data = survey.poly) + 
-  geom_sf(data = footprint) +
-  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.5) + 
-  labs(title = date)
+  geom_sf(data = footprint) + 
+  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("") + 
+  xlim(c(-137.14, -137))
+dev.off()
+
 
 # prepare windows
-survey.poly.mat <- survey.poly[[1]][[1]]
-survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
-                                     y=rev(survey.poly.mat[,2])))
-
 footprints <- lapply(1:length(footprint), function(i) {
   footprint.mat <- footprint[[i]][[1]]
   if(class(footprint.mat)[1] == "list"){
@@ -76,7 +87,8 @@ footprint.win <- do.call(union.owin, footprints)
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-ice.rast <- raster(here("covariates", "LK_ice_estimates.tiff"))
+ice.rast <- raster(here("covariates", paste0("cropped_LK_ice_estimates_", date,
+                                             ".tiff")))
 ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
 ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
 plot(ice.rast)
@@ -100,6 +112,9 @@ glac.dist.rast <- raster(here("covariates", "glacier_dist.tiff"))
 ## crop using survey boundary
 bath.rast.survey <- raster::crop(bath.rast, extent(survey.poly.mat))
 bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
+
+glac.dist.rast <- raster::crop(glac.dist.rast, extent(survey.poly.mat))
+glac.dist.rast <- raster::mask(glac.dist.rast, as(survey.poly, 'Spatial'))
 # # remove NAs
 # s.bath.rast <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
 # bath.rast.df <- data.frame(x = s.bath.rast[,1], y = s.bath.rast[,2],
@@ -112,26 +127,20 @@ bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 # plot(survey.poly, add = TRUE)
 # points(x = s.bath.rast.na[,1], y = s.bath.rast.na[,2])
 
-# calculate distance from southern boundary (glacier)
-# ggplot() + 
-#   geom_sf(data = survey.poly) + 
-#   geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
-# 
-# ggplot() + 
-#   geom_sf(data = survey.poly) +
-#   geom_line(data = glacier.poly, aes(x = V1, y = V2), col = "blue") + 
-#   geom_point(aes(x = glacier.poly[101,1], y = glacier.poly[101, 2]), color = "red")
+# # calculate distance from southern boundary (glacier)
+# ggplot() +
+#    geom_sf(data = survey.poly) +
+#    geom_point(aes(x = -137.1311, y = 58.84288), color = "red") # westmost point
 # 
 # survey.poly.df <- as.data.frame(survey.poly.mat)
-# glacier.poly <- survey.poly.df %>% filter(V2 < 58.84288)
-# glacier.poly <- as.matrix(glacier.poly[-(1:100),]) # found index 101 using localMinima
+# glacier.poly <- survey.poly.df %>% filter((V2 <= 58.84288) & (V1 <= -137.1035))
 # 
-# ggplot() + 
-#   geom_sf(data = survey.poly) + 
-#   geom_point(data = glacier.poly, aes(x = V1, y = V2), color = "red")
-
-# bath.rast <- na.omit(values(bath.rast.survey))
-
+# 
+# ggplot() +
+#   geom_sf(data = survey.poly) +
+#   geom_line(data = glacier.poly, aes(x = V1, y = V2), col = "blue")
+# 
+# 
 # # calculate glacier distance
 # seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
 # 
@@ -140,11 +149,11 @@ bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 # 
 # full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
 # 
-# glac.dist.df <- data.frame(x = s.full[,1], y = s.full[,2],
+# glac.dist.df <- data.frame(x = full.coord[,1], y = full.coord[,2],
 #                            z = full.glac.dist[,1])
 # glac.dist.rast <- rasterFromXYZ(glac.dist.df)
 # writeRaster(glac.dist.rast, filename = "glacier_dist.tiff", format = "GTiff")
-
+# 
 
 # --- Calculate areas ----------------------------------------------------------
 tot.area <- area.owin(survey.win)
@@ -192,7 +201,7 @@ X.win.full <- X.full[win.idx,]
 
 X.obs <- X.full[seal.idx,]
 n <- nrow(X.obs)
-
+p <- ncol(X.obs)
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc <- 100000
@@ -212,7 +221,7 @@ beta.0.save.full.lik <- out.comp.full$beta.0.save[-(1:n.burn)]
 # trace plots
 layout(matrix(1:2,2,1))
 plot(beta.0.save.full.lik,type="l")
-matplot(t(beta.save.full.lik),lty=1,type="l", col = c("black", "red"))
+matplot(t(beta.save.full.lik),lty=1,type="l")
 
 # # find optimal tuning parameters
 # beta.0.tune <- c(0.01,0.05,0.1,0.5)
@@ -279,13 +288,13 @@ sd(N.comp.save)
 quantile(N.comp.save, c(0.025, 0.975))
 
 
-# --- Fit comp. likelihood w/ ESN ----------------------------------------------
+# --- Fit comp. likelihood w/ ELM ----------------------------------------------
 source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
 X.full <- cbind(X.full, full.coord)
 
 theta.tune <- 0.1
 beta.tune <- 0.001
-q <- 10
+q <- 5
 lambda <- 1/100
 tic()
 out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, X.full,
@@ -353,8 +362,6 @@ beta.0.save <- log(theta.save)
 
 plot(beta.0.save, type ="l")
 
-
-
 # --- Fit SPP using cond. likelihood (glm stage 1) ------------------------
 # obtain background sample
 n.bg <- 100000
@@ -412,34 +419,20 @@ toc()
 #                           model = "logistic", n.samples = n.mcmc, burnin = n.burn)
 # toc()
 # 
-# # test ELM logistic glm
-# n.sim <- 100
-# q <- 5
-# A.array <- array(0, c(p, q, n.sim))
-# W.array <- array(0, c(nrow(X.obs.aug), q, n.sim))
-# aic.vec <- rep(0, n.sim)
-# beta.mat <- matrix(0, q+1, n.mcmc)
-# 
-# for(l in 1:n.sim){
-#   A.array[,,l] <- matrix(rnorm(q*p), p, q)
-#   W.array[,,l] <- gelu(X.obs.aug%*%A.array[,,l])
-#   tmp.lm <- glm(y.obs.binary ~ W.array[,,l], family = binomial(link = "logit"))
-#   aic.vec[l] <- AIC(tmp.lm)
-#   beta.mat[,l] <- coef(tmp.lm)
-# }
-# best.idx <- (1:n.sim)[aic.vec == min(aic.vec)]
-# cat("best AIC:", aic.vec[best.idx], "\n")
-# 
-# # ELM logistic bayesreg
-# source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
-# tic()
-# out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, X.win.aug, win.idx,
-#                                        seal.idx, ds, n.mcmc, q)
-# toc()
 
+# ELM logistic bayesreg
+n.sim <- 100
+q <- 5
+source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
+tic()
+out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
+                                       n, q, n.mcmc, n.burn, n.train)
+toc()
+
+W.win.full <- out.bern.ELM$W.full[win.idx,]
 # prepare for second stage
 out.cond.bern <- list(beta.save = out.bern.ELM$beta.save, 
-                      n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full)
+                      n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full)
 
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
@@ -496,15 +489,15 @@ dev.off()
 beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
 W.win.full <- out.bern.ELM$W.full[win.idx,]
 
-beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = cov.glm)
+# beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = cov.glm)
 lam.int.save <- rep(0, n.mcmc)
 
 cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
 
 tic()
-lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + X.win.full %*% beta.save[k,]))
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + W.win.full %*% beta.save[,k]))
   return(lam.int) 
 }
 toc()
@@ -512,8 +505,8 @@ toc()
 stopCluster(cl) # 22.4 sec
 
 # prepare for third stage
-out.cond.pg2 <- list(beta.save = t(beta.save), n.mcmc = n.mcmc, n = n,
-                     ds = ds, X.full = X.win.full, lam.int.save = lam.int.save)
+out.cond.pg2 <- list(beta.save = beta.save, n.mcmc = n.mcmc - n.burn, n = n,
+                     ds = ds, X.full = W.win.full, lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
 source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
@@ -610,30 +603,29 @@ points(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples
-N.save=rep(0,n.mcmc)
+N.save <- rep(0, n.mcmc - n.burn)
 
-X.nowin.full <- X.full[-win.idx,]
+# X.nowin.full <- X.full[-win.idx,]
+W.full <- out.bern.ELM$W.full[(1:nrow(X.full)),]
+W.nowin.full <- W.full[-win.idx,]
 n <- nrow(seal.mat)
 
 tic()
-for(k in 1:n.mcmc){
+for(k in 1:(n.mcmc-n.burn)){
   if(k%%10000==0){cat(k," ")}
   beta.0.tmp=out.cond.pg3$beta.0.save[k]
   beta.tmp=out.cond.pg3$beta.save[,k]
-  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+X.nowin.full%*%beta.tmp)) # can parallelize
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+W.nowin.full%*%beta.tmp)) # can parallelize
   N.save[k]=n+rpois(1,lam.nowin.int)
 };cat("\n")
 toc()
 
 par(mfrow = c(1,1))
 
-# discard burn-in
-N.save <- N.save[-(1:n.burn)]
-
-plot(N.save,type="l")
+# plot(N.save, type="l")
 pdf("abundance_posterior_pred.pdf")
-hist(N.save,breaks=50,prob=TRUE,main="",xlab="N")
-abline(v = 1129, lty = 2, col = "red", lwd = 2)
+hist(N.save, breaks = 50, prob = TRUE, main = "", xlab = "N")
+# abline(v = 1129, lty = 2, col = "red", lwd = 2)
 dev.off()
 
 # posterior summary

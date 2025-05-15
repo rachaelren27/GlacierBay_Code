@@ -22,7 +22,7 @@ spp.stg3.mcmc.nb <- function(out){
   
   # beta prior hyperparameters
   mu.0 <- rep(0,p)
-  sig.0 <- 100*diag(p)
+  sig.0 <- 10000*diag(p)
   
   # gamma prior hyperparameters
   a <- 0.000001
@@ -35,7 +35,6 @@ spp.stg3.mcmc.nb <- function(out){
   beta <- c(out$beta.save[,n.mcmc])
   lam.int <- lam.int.save[n.mcmc]
   X.beta.sum <- X.beta.sum.save[[n.mcmc]]
-  theta <- rgamma(1, a + n, b + lam.int)
   
   for(k in 1:n.mcmc){
     if(k %% 1000 == 0){cat(k, " ")}

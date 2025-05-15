@@ -47,7 +47,7 @@ win.area <- tot.win.area/n.win
 tot.nonwin.area <- tot.area - tot.win.area
 
 # # plot the window
-# domain <- owin(xrange = c(0,domain.length), yrange = c(0,domain.length))
+domain <- owin(xrange = c(0,domain.length), yrange = c(0,domain.length))
 
 # plot(domain)
 # plot(combined.window, add = TRUE)
@@ -141,14 +141,16 @@ ggplot(data = obs.df, aes(x = x.superpop, y = y.superpop,
 # plot(combined.window, add = TRUE)
 # points(s.obs[,1], s.obs[,2], col = factor(obs.win), pch = 19, cex = 0.5)
 # 
-# domain.sf <- st_as_sfc(as.polygonal(domain)) %>% st_sf()
-# combined.window.sf <- st_as_sfc(as.polygonal(combined.window)) %>% st_sf()
-# ggplot() + 
-#   geom_sf(data = domain.sf) + 
-#   geom_sf(data = combined.window.sf) + 
-#   geom_point(aes(x = s.win[,1], y = s.win[,2]), col = "red", size = 0.5) + 
-#   # geom_point(aes(x = s.obs[-obs.win.idx,1], y = s.obs[-obs.win.idx,2]), size = 0.5) + 
-#   theme(axis.title = element_blank())
+pdf("sim2_data.pdf")
+domain.sf <- st_as_sfc(as.polygonal(domain)) %>% st_sf()
+combined.window.sf <- st_as_sfc(as.polygonal(combined.window)) %>% st_sf()
+ggplot() +
+  geom_sf(data = domain.sf) +
+  geom_sf(data = combined.window.sf) +
+  geom_point(aes(x = s.win[,1], y = s.win[,2]), col = "red", size = 0.5) +
+  # geom_point(aes(x = s.obs[-obs.win.idx,1], y = s.obs[-obs.win.idx,2]), size = 0.5) +
+  theme(axis.title = element_blank())
+dev.off()
 
 # --- Fit SPP w/ complete likelihood -------------------------------------------
 n.mcmc <- 100000
@@ -196,7 +198,7 @@ abline(v=N,col=rgb(0,1,0,.8),lty=2,lwd=2)
 
 # --- Prepare Logistic Regression X matrix -------------------------------------
 # sample background points
-n.bg <- 100000
+n.bg <- 50000
 bg.pts <- rpoint(n.bg, win = combined.window)
 
 n.mcmc <- 100000
@@ -259,13 +261,62 @@ matplot(t(beta.save),lty=1,type="l")
 abline(h=beta,col=rgb(0,1,0,.8),lty=2)
 
 
+# --- Fit SPP w/ cond. likelihood (Polya-Gamma) --------------------------------
+source(here("GlacierBay_Code", "Polya_Gamma.R"))
+X.pg <- cbind(rep(1, nrow(X.bern)), X.bern) # add intercept
+p <- ncol(X.pg)
+mu.beta <- rep(0, p)
+sigma.beta <- diag(100, p)
+
+tic()
+beta.save.pg <- polya_gamma(y.bern, X.pg,
+                            mu.beta, sigma.beta, n.mcmc)
+toc() # 1039 sec
+
+beta.save <- beta.save.pg$beta[-1,]
+
+# stage 2
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+tic()
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + X.win.full%*%beta.save[,k]))
+  return(lam.int)
+}
+toc() # 12 sec
+
+stopCluster(cl)
+
+out.pg2 <- list(beta.save = beta.save,
+                 n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
+                 lam.int.save = lam.int.save)
+
+# stage 3
+source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
+out.pg3 <- spp.stg3.mcmc(out.pg2)
+
+beta.save <- out.pg3$beta.save
+beta.0.save <- out.pg3$beta.0.save
+
+effectiveSize(beta.0.save)
+effectiveSize(beta.save[1,])
+effectiveSize(beta.save[2,])
+
+layout(matrix(1:2,2,1))
+plot(beta.0.save,type="l")
+abline(h=beta.0,col=rgb(0,1,0,.8),lty=2)
+matplot(t(beta.save),lty=1,type="l")
+abline(h=beta,col=rgb(0,1,0,.8),lty=2)
+
+
 # --- Non-Bayesian GLM (exact, logistic) ---------------------------------------
 ## stage 1
 out.glm <- glm(y ~ x1 + x2, family = binomial(link="logit"), data = bern.df)
 beta.glm <- coef(out.glm)[-1]
-se.glm <- summary(out.glm)$coefficients[-1, 2]
+vcov.glm <- vcov(out.glm)[-1,-1]
 # sample from glm estimated density
-beta.save <- t(mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2)))
+beta.save <- t(mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = vcov.glm))
 
 ## stage 2
 cl <- makeCluster(detectCores()-1)
@@ -318,10 +369,17 @@ beta.save <- t(mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = diag(se.glm^2)))
 # stage 2
 lam.int.save <- c()
 
-for(k in 1:n.mcmc){
-  if(k%%1000==0){cat(k," ")}
-  lam.int.save[k] <- sum(exp(log(ds)+X.win.full%*%beta.save[,k]))
-};cat("\n")
+tic()
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + X.win.full%*%beta.save[,k]))
+  return(lam.int)
+}
+
+stopCluster(cl)
+toc()
 
 out.glm.approx2 <- list(beta.save = beta.save, 
                        n.mcmc = n.mcmc, n = n, ds = ds, X.full = X.win.full,
@@ -451,11 +509,13 @@ plot(density(out.comp.full$beta.0.save[-(1:n.burn)], n = 1000), col = "red",
      lwd = 2, ylim = c(0,10))
 lines(density(out.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "green", 
       lwd = 2)
-# lines(density(out.glm.approx3$beta.0.save[-(1:n.burn)], n = 1000), col = "blue", 
-#       lwd = 2)
-# lines(density(out.bayes.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "orange", 
-#       lwd = 2)
+lines(density(out.glm.approx3$beta.0.save[-(1:n.burn)], n = 1000), col = "blue",
+      lwd = 2)
+lines(density(out.bayes.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "orange",
+      lwd = 2)
 lines(density(out.pois.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "purple", 
+      lwd = 2)
+lines(density(out.pg3$beta.0.save[-(1:n.burn)], n = 1000), col = "pink", 
       lwd = 2)
 abline(v = beta.0, lwd = 2, lty = 2)
 # hist(out.comp.full$beta.save[1,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[1]),
@@ -464,10 +524,12 @@ plot(density(out.comp.full$beta.save[1,-(1:n.burn)], n = 1000), col = "red",
      lwd = 2, ylim = c(0,10))
 lines(density(out.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "green",
       lwd = 2)
-# lines(density(out.glm.approx3$beta.save[1,-(1:n.burn)], n = 1000), col = "blue",
-#       lwd = 2)
-# lines(density(out.bayes.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "orange",
-#       lwd = 2)
+lines(density(out.pg3$beta.save[1,-(1:n.burn)], n = 1000), col = "pink",
+      lwd = 2)
+lines(density(out.glm.approx3$beta.save[1,-(1:n.burn)], n = 1000), col = "blue",
+      lwd = 2)
+lines(density(out.bayes.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "orange",
+      lwd = 2)
 lines(density(out.pois.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "purple",
       lwd = 2)
 abline(v = beta[1], lwd = 2, lty = 2)
@@ -477,11 +539,13 @@ plot(density(out.comp.full$beta.save[2,-(1:n.burn)], n = 1000), col = "red",
      lwd = 2, ylim = c(0,10))
 lines(density(out.glm3$beta.save[2, -(1:n.burn)], n=1000), col = "green",
       lwd = 2)
-# lines(density(out.glm.approx3$beta.save[2, -(1:n.burn)], n=1000), col = "blue",
-#       lwd = 2)
-# lines(density(out.bayes.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "orange",
-#       lwd = 2)
+lines(density(out.glm.approx3$beta.save[2, -(1:n.burn)], n=1000), col = "blue",
+      lwd = 2)
+lines(density(out.bayes.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "orange",
+      lwd = 2)
 lines(density(out.pois.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "purple",
+      lwd = 2)
+lines(density(out.pg3$beta.save[2,-(1:n.burn)], n = 1000), col = "pink",
       lwd = 2)
 abline(v = beta[2], lwd = 2, lty = 2)
 # dev.off()
@@ -491,44 +555,47 @@ df <- data.frame(
   value = c(
     # beta[0]
     out.comp.full$beta.0.save[-(1:n.burn)],
+    out.pg3$beta.0.save[-(1:n.burn)],
     out.bayes.glm3$beta.0.save,
     out.glm3$beta.0.save[-(1:n.burn)],
     out.glm.approx3$beta.0.save[-(1:n.burn)],
     
     # beta[1]
     out.comp.full$beta.save[1, -(1:n.burn)],
+    out.pg3$beta.save[1, -(1:n.burn)],
     out.bayes.glm3$beta.save[1,],
     out.glm3$beta.save[1, -(1:n.burn)],
     out.glm.approx3$beta.save[1, -(1:n.burn)],
     
     # beta[2]
     out.comp.full$beta.save[2, -(1:n.burn)],
+    out.pg3$beta.save[2, -(1:n.burn)],
     out.bayes.glm3$beta.save[2,],
     out.glm3$beta.save[2, -(1:n.burn)],
     out.glm.approx3$beta.save[2, -(1:n.burn)]
   ),
   
-  model = rep(
-    c("complete", "stan_glm", "exact-GLM", "approx-GLM"),
+  method = rep(
+    c("complete", "PG", "stan_glm", "NB-GLM-E", "NB-GLM-A"),
     each = n_keep, times = 3
   ),
   
   coefficient = rep(
     c("beta[0]", "beta[1]", "beta[2]"),
-    each = 4 * n_keep
+    each = 5 * n_keep
   )
 )
 
-df$model <- factor(df$model, levels = c("complete", "stan_glm", "exact-GLM", "approx-GLM"))
+df$method <- factor(df$method, levels = c("complete", "PG", "stan_glm", "NB-GLM-E", "NB-GLM-A"))
 df$coefficient <- factor(df$coefficient, levels = c("beta[0]", "beta[1]", "beta[2]"))
 
 pdf("compare_marginals.pdf")
-ggplot(df, aes(x = coefficient, y = value, fill = model)) +
+ggplot(df, aes(x = coefficient, y = value, fill = method)) +
   geom_violin(position = position_dodge(0.95), trim = FALSE, color = "black") +
   scale_x_discrete(labels = c(TeX("$\\beta_0$"), TeX("$\\beta_1$"), 
                               TeX("$\\beta_2$"))) +
   theme_minimal(base_size = 14) +
   labs(
-    x = "Coefficient", y = "Value", fill = "Model"
+    x = "Coefficient", y = "Value", fill = "Method"
   )
 dev.off()

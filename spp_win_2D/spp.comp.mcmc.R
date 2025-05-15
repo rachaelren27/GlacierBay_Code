@@ -26,10 +26,10 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
   ###  Priors and Starting Values
   ###
   
-  mu.00 <- 0
-  sig.00 <- 10
-  a <- 0.0001
-  b <- 0.0001
+  # mu.00 <- 0
+  # sig.00 <- 10
+  a <- 0.000001
+  b <- 0.000001
   mu.0 <- rep(0,p)
   sig.0 <- 100*diag(p)
   

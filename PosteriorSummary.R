@@ -16,7 +16,7 @@ calc_lambda <- function(X, beta){
 lam.post.mean <- calc_lambda(X.full, beta.post.means)
 
 # for plotting
-s.full <- xyFromCell(bath.rast, which(!is.na(values(bath.rast))))
+s.full <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
 colnames(s.full) <- c("lat", "long")
 lam.post.mean.df <- as.data.frame(cbind(s.full, lam.post.mean))
 colnames(lam.post.mean.df) <- c("lat", "long", "lam.post.mean")
@@ -135,35 +135,29 @@ coarse.rast <- rast(ext(survey.vect), resolution = 0.00125)
 values(coarse.rast) <- rep(0, dim(coarse.rast)[1]*dim(coarse.rast)[2], crs = "WGS84")
 coarse.rast <- mask(coarse.rast, survey.vect)
 
-s.sim <- post.mean.sim[[1]]
-cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim))
-
+# s.sim <- post.mean.sim[[1]]
+# cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim))
+# 
 s.full <- xyFromCell(coarse.rast, cell = 1:(dim(coarse.rast)[1]*dim(coarse.rast)[2]))
-count.mat <- cbind(s.full, z = values(coarse.rast))
-count.mat[as.integer(names(cell.counts)),3] <- cell.counts
-count.rast <- rasterFromXYZ(count.mat)
+# count.mat <- cbind(s.full, z = values(coarse.rast))
+# count.mat[as.integer(names(cell.counts)),3] <- cell.counts
+# count.rast <- rasterFromXYZ(count.mat)
+# 
+# plot(count.rast, col = viridis(100))
+# points(x = seal.mat[,1], y = seal.mat[,2], col = "red", pch = 19, cex = 0.1)
 
-plot(count.rast, col = viridis(100))
-points(x = seal.mat[,1], y = seal.mat[,2], col = "red", pch = 19, cex = 0.1)
-
-# crop survey boundary
-survey.poly.crop <- st_read(dsn = here("covariates"),
-                       layer = paste0("cropped_survey_poly_20070618_bounds"))
-
- survey.poly.crop <- st_transform(survey.poly.crop$geometry, 
-                            CRS("+proj=longlat +datum=WGS84"))
-
-survey.vect.crop <- vect(survey.poly.crop)
-count.rast <- terra::rast(count.rast)
-count.rast <- mask(count.rast, survey.vect.crop)
-plot(count.rast, col = viridis(100), ylim = c(58.82, 58.92), xlim = c(-137.15, -137))
+# # crop survey boundary
+# count.rast <- terra::rast(count.rast)
+# count.rast <- mask(count.rast, survey.vect)
+# plot(count.rast, col = viridis(100), ylim = c(58.82, 58.92), xlim = c(-137.15, -137))
 
 # compute count posterior mean and variance
+s.sim.list <- list()
 count.mat <- matrix(0, nrow = (n.mcmc - n.burn), ncol = length(values(coarse.rast)))
 for(i in 1:(n.mcmc - n.burn)){
   lambda.full <- calc_lambda(W.full, beta.save.full[i,])
-  s.sim <- sim_points(lambda.full, length(seal.locs), survey.win,
-                footprint.win, nonwin = FALSE)[[1]]
+  s.sim.list[[i]] <- sim_points(lambda.full, n, survey.win,
+                                footprint.win, nonwin = FALSE)[[1]]
   cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim))
   count.mat[i, as.integer(names(cell.counts))] <- cell.counts
   if(i %% 100 == 0){
@@ -180,7 +174,7 @@ plot(count.rast.mean)
 
 rast.df <- as.data.frame(count.rast.mean, xy = TRUE, na.rm = TRUE)
 
-pdf("posterior_mean_count.pdf", compress = FALSE)
+pdf("posterior_mean_count_20070621.pdf", compress = FALSE)
 ggplot(data = as.data.frame(rast.df)) + 
   geom_tile(aes(x = x, y = y, fill = z, col = z)) +
   scale_color_viridis_c(guide = "none") +
@@ -189,12 +183,10 @@ ggplot(data = as.data.frame(rast.df)) +
     legend.position = "right",
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),  
     axis.ticks = element_line(),
-    panel.background = element_rect(fill = "white", color = NA, size = 0.1),
-    panel.grid.major = element_line(color = "grey90"),
   ) +
+  theme_bw() + 
   xlim(c(-137.14, -137)) + 
-  xlab("") + 
-  ylab("")
+  theme(axis.title = element_blank())
 dev.off()
   
 count.med <- apply(count.mat, 2, median)

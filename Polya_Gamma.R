@@ -20,13 +20,13 @@ polya_gamma <- function(y, X,
   ###
   
   ### Cool Start
-  beta=mu_beta
+  beta <- mu_beta
   
   ###
   ### Storage
   ###
   
-  beta_save=matrix(NA, ncol(X), n_mcmc)
+  beta_save <- matrix(NA, ncol(X), n_mcmc)
   
   ###
   ### MCMC loop
@@ -49,10 +49,10 @@ polya_gamma <- function(y, X,
     P_vb <- crossprod(X*omega,X) + P
     Sigma <- solve(P_vb) 
     mu <- Sigma %*% (crossprod(X,kappa) + Pmu)
-    beta=t(mvnfast::rmvn(1, mu, Sigma))
+    beta <- t(mvnfast::rmvn(1, mu, Sigma))
     
     ### Save Samples
-    beta_save[,q]=beta
+    beta_save[,q] <- beta
     
     ###
     ### Timer

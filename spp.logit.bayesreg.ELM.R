@@ -1,8 +1,6 @@
-spp.logit.bayesreg.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, n, q, n.mcmc,
-                                   n.burn, n.train){
+spp.logit.bayesreg.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, n, q, n.train){
   
-  require(stats)
-  require(VGAM)
+  require(bayesreg)
   
   gelu <- function(z){	
     z*pnorm(z)
@@ -21,7 +19,7 @@ spp.logit.bayesreg.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, n, q, n.
   
   for(l in 1:n.train){
     A.array[,,l] <- matrix(rnorm(q*p), p, q)
-    W.array[,,l] <- gelu(X.obs.aug%*%A.array[,,l])
+    W.array[,,l] <- scale(gelu(X.obs.aug%*%A.array[,,l]), center = FALSE)
     tmp.lm <- glm(as.factor(y.obs.binary) ~ W.array[,,l], family = binomial(link = "logit"))
     aic.vec[l] <- AIC(tmp.lm)
     beta.mat[,l] <- coef(tmp.lm)
@@ -35,12 +33,14 @@ spp.logit.bayesreg.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, n, q, n.
   
   # fit logistic regression
   logit.obs.df <- data.frame(y = as.factor(y.obs.binary), W.obs)
-  out.bern.cond <- bayesreg(y ~ X1 + X2 + X3 + X4 + X5, data = logit.obs.df,
-                            model = "logistic",
-                            n.samples = n.mcmc, burnin = n.burn)
+  out.bern.cond <- glm(y ~ W.obs, data = logit.obs.df,
+                           family = binomial(link="logit"))
   
   beta.save <- out.bern.cond$beta
   
-  list(beta.save=beta.save, W.full=W.full, W.obs=W.obs, A=A)
+  beta.glm <- coef(out.bern.cond)[-1]
+  vcov.glm <- vcov(out.bern.cond)[-1,-1]
+  
+  list(beta.glm=beta.glm, vcov.glm=vcov.glm, W.full=W.full, W.obs=W.obs, A=A)
   
 }

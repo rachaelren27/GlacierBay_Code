@@ -1,4 +1,4 @@
-spp.comp.ESN.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mcmc,
+spp.comp.ELM.mcmc <- function(s.mat, X.full, full.win.idx, obs.win.idx, ds, n.mcmc,
                               theta.tune, beta.tune, q, lambda){
   
   require(stats)

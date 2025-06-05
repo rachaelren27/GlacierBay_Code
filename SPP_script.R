@@ -289,15 +289,15 @@ quantile(N.comp.save, c(0.025, 0.975))
 
 
 # --- Fit comp. likelihood w/ ELM ----------------------------------------------
-source(here("GlacierBay_Code", "spp.comp.ESN.mcmc.R"))
-X.full <- cbind(X.full, full.coord)
+source(here("GlacierBay_Code", "spp.comp.ELM.mcmc.R"))
+# X.full <- cbind(X.full, full.coord)
 
 theta.tune <- 0.1
 beta.tune <- 0.001
 q <- 5
 lambda <- 1/100
 tic()
-out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, X.full,
+out.comp.esn <- spp.comp.ELM.mcmc(seal.mat, X.full,
                                win.idx, seal.idx, ds, n.mcmc, theta.tune, 
                                beta.tune, q, lambda)
 toc()
@@ -421,17 +421,20 @@ toc()
 # 
 
 # ELM logistic bayesreg
-n.sim <- 100
-q <- 5
-source(here("GlacierBay_Code", "spp.logit.bayesreg.ELM.R"))
+q.vec <- rep(seq(from = 5, to = 30, by = 5), each = 10)
+source(here("GlacierBay_Code", "spp.logit.ELM.R"))
 tic()
-out.bern.ELM <- spp.logit.bayesreg.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
-                                       n, q, n.mcmc, n.burn, n.train)
+out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
+                              q.vec)
 toc()
 
 W.win.full <- out.bern.ELM$W.full[win.idx,]
+beta.glm <- out.bern.ELM$beta.glm
+vcov.glm <- out.bern.ELM$vcov.glm
+beta.save <- mvnfast::rmvn(n.mcmc, beta.glm, vcov.glm)
+
 # prepare for second stage
-out.cond.bern <- list(beta.save = out.bern.ELM$beta.save, 
+out.cond.bern <- list(beta.save = beta.save, 
                       n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full)
 
 
@@ -486,7 +489,6 @@ dev.off()
 
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-beta.save <- out.bern.ELM$beta[,-(1:n.burn)]
 W.win.full <- out.bern.ELM$W.full[win.idx,]
 
 # beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = cov.glm)
@@ -496,8 +498,8 @@ cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
 
 tic()
-lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + W.win.full %*% beta.save[,k]))
+lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + W.win.full %*% beta.save[k,]))
   return(lam.int) 
 }
 toc()
@@ -505,7 +507,7 @@ toc()
 stopCluster(cl) # 22.4 sec
 
 # prepare for third stage
-out.cond.pg2 <- list(beta.save = beta.save, n.mcmc = n.mcmc - n.burn, n = n,
+out.cond.pg2 <- list(beta.save = t(beta.save), n.mcmc = n.mcmc, n = n,
                      ds = ds, X.full = W.win.full, lam.int.save = lam.int.save)
 
 # --- 3rd stage MCMC -----------------------------------------------------------
@@ -514,9 +516,9 @@ tic()
 out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg2)
 toc() # ~ 1 sec
 
-# discard burn-in
-beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
-beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+# # discard burn-in
+# beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
+# beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
 
 # trace plots
 layout(matrix(1:2,2,1))
@@ -524,7 +526,7 @@ plot(beta.0.save,type="l")
 plot(beta.save[1,], type = "l")
 plot(beta.save[2,], type = "l")
 
-matplot(t(beta.save),lty=1,type="l")
+matplot(beta.save,lty=1,type="l")
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -603,7 +605,7 @@ points(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-
 
 # --- Posterior for N ----------------------------------------------------------
 # complete likelihood samples
-N.save <- rep(0, n.mcmc - n.burn)
+N.save <- rep(0, n.mcmc)
 
 # X.nowin.full <- X.full[-win.idx,]
 W.full <- out.bern.ELM$W.full[(1:nrow(X.full)),]
@@ -611,7 +613,7 @@ W.nowin.full <- W.full[-win.idx,]
 n <- nrow(seal.mat)
 
 tic()
-for(k in 1:(n.mcmc-n.burn)){
+for(k in 1:(n.mcmc)){
   if(k%%10000==0){cat(k," ")}
   beta.0.tmp=out.cond.pg3$beta.0.save[k]
   beta.tmp=out.cond.pg3$beta.save[,k]
@@ -623,10 +625,10 @@ toc()
 par(mfrow = c(1,1))
 
 # plot(N.save, type="l")
-pdf("abundance_posterior_pred.pdf")
+# pdf("abundance_posterior_pred.pdf")
 hist(N.save, breaks = 50, prob = TRUE, main = "", xlab = "N")
 # abline(v = 1129, lty = 2, col = "red", lwd = 2)
-dev.off()
+# dev.off()
 
 # posterior summary
 mean(N.save)
@@ -644,7 +646,7 @@ W.full <- out.bern.ELM$W.full[1:nrow(X.full),]
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
 lam.full <- exp(beta.post.means[1] + W.full%*%beta.post.means[-1])
-lam.full.df <- as.data.frame(cbind(full.coord, lam.full))
+lam.full.df <- as.data.frame(cbind(ice.full.coord, lam.full))
 lam.full.rast <- rasterFromXYZ(lam.full.df)
 
 # # get cell with highest intensity
@@ -702,7 +704,7 @@ N0.pred=nrow(s.obs)
 seal.ice.idx <- cellFromXY(ice.rast, s.obs)
 num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
 
-pdf("simulate_08132007_2.pdf")
+# pdf("simulate_08132007_2.pdf")
 ggplot() + 
   geom_sf(data = survey.poly) +
   # geom_tile(data = lam.full.df, aes(x = x, y = y, 
@@ -711,9 +713,9 @@ ggplot() +
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
              size = 0.5) +
-  geom_sf(data = seal.locs, size = 0.5, color = "red") +
+   # geom_sf(data = seal.locs, size = 0.5, color = "red") +
   theme(axis.title = element_blank())
-dev.off()
+# dev.off()
 
 
 # --- L-function p-value -------------------------------------------------------

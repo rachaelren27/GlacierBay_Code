@@ -31,9 +31,9 @@ spp.comp.mcmc <- function(s.mat,X,X.full,ds,n.mcmc,theta.tune,beta.tune){
   a <- 0.000001
   b <- 0.000001
   mu.0 <- rep(0,p)
-  sig.0 <- 100*diag(p)
+  sig.0 <- 10000*diag(p)
   
-  theta <- 1
+  theta <- log(11)
   beta <- rep(0,p)
   
   # beta.0.tune=.1

@@ -206,10 +206,10 @@ p <- ncol(X.obs)
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc <- 100000
 source(here("GlacierBay_Code", "spp_win_2D", "spp.comp.mcmc.R"))
-theta.tune <- 0.1
-beta.tune <- 0.01
+theta.tune <- 0.01
+beta.tune <- 0.05
 tic()
-out.comp.full <- spp.comp.mcmc(seal.mat, X.obs, X.win.full, ds, n.mcmc, theta.tune,
+out.comp.full <- spp.comp.mcmc(seal.mat, W.obs, W.win.full, ds, n.mcmc, theta.tune,
                                beta.tune)
 toc() # 453.14 sec elapsed (~7.5 min)
 
@@ -420,8 +420,8 @@ toc()
 # toc()
 # 
 
-# ELM logistic bayesreg
-q.vec <- rep(seq(from = 5, to = 30, by = 5), each = 10)
+# ELM logistic non-Bayes
+q.vec <- rep(seq(from = 5, to = 50, by = 5), each = 10)
 source(here("GlacierBay_Code", "spp.logit.ELM.R"))
 tic()
 out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
@@ -429,13 +429,14 @@ out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary,
 toc()
 
 W.win.full <- out.bern.ELM$W.full[win.idx,]
+W.obs <- out.bern.ELM$W.obs
 beta.glm <- out.bern.ELM$beta.glm
 vcov.glm <- out.bern.ELM$vcov.glm
 beta.save <- mvnfast::rmvn(n.mcmc, beta.glm, vcov.glm)
 
-# prepare for second stage
-out.cond.bern <- list(beta.save = beta.save, 
-                      n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full)
+# # prepare for second stage
+# out.cond.bern <- list(beta.save = beta.save, 
+#                       n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full)
 
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
@@ -516,9 +517,8 @@ tic()
 out.cond.pg3 <- spp.stg3.mcmc(out.cond.pg2)
 toc() # ~ 1 sec
 
-# # discard burn-in
-# beta.save <- out.cond.pg3$beta.save[,-(1:n.burn)]
-# beta.0.save <- out.cond.pg3$beta.0.save[-(1:n.burn)]
+beta.save <- out.cond.pg3$beta.save
+beta.0.save <- out.cond.pg3$beta.0.save
 
 # trace plots
 layout(matrix(1:2,2,1))
@@ -526,7 +526,7 @@ plot(beta.0.save,type="l")
 plot(beta.save[1,], type = "l")
 plot(beta.save[2,], type = "l")
 
-matplot(beta.save,lty=1,type="l")
+matplot(t(beta.save)[,1:5],lty=1,type="l")
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -612,15 +612,14 @@ W.full <- out.bern.ELM$W.full[(1:nrow(X.full)),]
 W.nowin.full <- W.full[-win.idx,]
 n <- nrow(seal.mat)
 
-tic()
 for(k in 1:(n.mcmc)){
   if(k%%10000==0){cat(k," ")}
   beta.0.tmp=out.cond.pg3$beta.0.save[k]
   beta.tmp=out.cond.pg3$beta.save[,k]
-  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+W.nowin.full%*%beta.tmp)) # can parallelize
+  lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+W.nowin.full%*%beta.tmp))
   N.save[k]=n+rpois(1,lam.nowin.int)
 };cat("\n")
-toc()
+
 
 par(mfrow = c(1,1))
 
@@ -652,59 +651,56 @@ lam.full.rast <- rasterFromXYZ(lam.full.df)
 # # get cell with highest intensity
 # lam.max.s <- lam.full.df[which(lam.full.df[,3] == max(lam.full.df[,3])),][-3]
 
-pdf("posterior_mean_heatmap.pdf")
+# pdf("posterior_mean_heatmap.pdf")
 plot(lam.full.rast, col = viridis(100))
 # plot(survey.win, add = TRUE)
-dev.off()
+# dev.off()
 
 # --- Simulating seal realizations ---------------------------------------------
-lam.max <- max(lam.full)
-M <- rpois(1, area.owin(survey.win)*lam.max)
-s.superpop.full <- rpoint(M, win = survey.win)
-
-superpop.nonwin <- !inside.owin(s.superpop.full$x, s.superpop.full$y, footprint.win)
-s.superpop.nonwin <- cbind(x = s.superpop.full$x, s.superpop.full$y)[which(superpop.nonwin == TRUE),]
-M0 <- nrow(s.superpop.nonwin)
-
-# prepare X matrix
-superpop.nonwin.idx.full <- cellFromXY(ice.rast, s.superpop.nonwin)
-row.counts <- table(factor(superpop.nonwin.idx.full, levels = 1:length(ice.rast)))
-ice.full <- cbind(values(ice.rast), row.counts)
-ice <- na.omit(ice.full)
-X.superpop.full <- cbind(ice, bath, glac.dist)
-X.superpop.full <- na.omit(X.superpop.full)
-superpop.nonwin.idx <- rep(seq_len(nrow(X.full)), times = X.superpop.full[, 2])
-X.superpop.full <- scale(X.superpop.full[,-2])
-X.superpop.nonwin <- X.superpop.full[superpop.nonwin.idx,]
-
-gelu <- function(z){	
-  z*pnorm(z)
+sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, nonwin = TRUE){
+  if(nonwin){
+    lam <- lam[-win.idx]
+    coord <- full.coord[-win.idx,]
+  } else{
+    lam <- lam[win.idx]
+    coord <- full.coord[win.idx,]
+  }
+  lam.max <- max(lam)
+  M <- rpois(1, area.owin(survey.win)*lam.max)
+  superpop.full <- rpoint(M, win = survey.win)
+  
+  if(nonwin){
+    is.superpop.nonwin <- !inside.owin(superpop.full$x, superpop.full$y, footprint.win)
+    superpop <- cbind(x = superpop.full$x, superpop.full$y)[which(is.superpop.nonwin == TRUE),]
+    
+  } else{
+    superpop <- cbind(superpop.full$x, superpop.full$y)
+  }
+  
+  lam.df <- data.frame(x = coord[,1], y = coord[,2], z = lam)
+  lam.rast <- rasterFromXYZ(lam.df)
+  superpop.idx <- cellFromXY(lam.rast, superpop)
+  lam.superpop <- values(lam.rast)[superpop.idx]
+  lam.superpop.mat <- na.omit(cbind(superpop, lam.superpop))
+  M <- nrow(lam.superpop.mat)
+  
+  obs.idx <- rbinom(M,1,lam.superpop.mat[,3]/lam.max)==1
+  s.obs <- lam.superpop.mat[obs.idx,1:2] # total observed points 
+  lam.obs <- lam.superpop.mat[obs.idx,3]
+  
+  return(list(s.obs, lam.obs))
 }
 
-A <- out.bern.ELM$A
-W.superpop.nonwin <- gelu(X.superpop.nonwin%*%A)
-M0 <- nrow(X.superpop.nonwin)
-
-# thin superpop
-lam.superpop.nonwin=exp(beta.post.means[1] + W.superpop.nonwin%*%beta.post.means[-1])
-# lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
-
-superpop.nonwin.idx <- cellFromXY(lam.full.rast, s.superpop.nonwin)
-lam.superpop.nonwin <- values(lam.full.rast)[superpop.nonwin.idx]
-lam.superpop.nonwin.mat <- na.omit(cbind(s.superpop.nonwin, lam.superpop.nonwin))
-lam.superpop.nonwin.df <- as.data.frame(lam.superpop.nonwin.mat)
-colnames(lam.superpop.nonwin.df) <- c("x", "y", "fill")
-
-obs.idx=rbinom(M0, 1, lam.superpop.nonwin.mat[,3]/lam.max)==1
-s.obs=lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points 
-lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
-N0.pred=nrow(s.obs)
-
+sim.points <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win, 
+                         nonwin = F)
+  
 # check how many seals on 0 ice
-seal.ice.idx <- cellFromXY(ice.rast, s.obs)
+seal.ice.idx <- cellFromXY(ice.rast, sim.points[[s.obs]])
 num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
 
 # pdf("simulate_08132007_2.pdf")
+s.obs <- sim.points[[1]]
+lam.obs <- sim.points[[2]]
 ggplot() + 
   geom_sf(data = survey.poly) +
   # geom_tile(data = lam.full.df, aes(x = x, y = y, 
@@ -713,71 +709,41 @@ ggplot() +
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
              size = 0.5) +
-   # geom_sf(data = seal.locs, size = 0.5, color = "red") +
+  geom_sf(data = seal.locs, size = 0.5, color = "red") +
   theme(axis.title = element_blank())
 # dev.off()
 
+sim.ppp <- ppp(s.obs[,1], s.obs[,2], window = footprint.win)
+sim.L <- Linhom(sim.ppp)
+plot(x = obs.L$r, y = obs.L$iso, type = "l", col = "red")
+lines(x = sim.L$r, y = sim.L$iso)
 
 # --- L-function p-value -------------------------------------------------------
 ## compute L-function for observed data
 obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
 obs.L <- Linhom(obs.ppp)
-plot(obs.L)
+plot(x = obs.L$r, y = obs.L$iso, type = "l")
 # lines(x = obs.L$r, y = obs.L$theo)
 
-## compute L-function for 
-out.comp.esn <- out.comp.esn.list[[14]]
-beta.0.save <- out.comp.esn$beta.0.save[-(1:n.burn)]
-beta.save <- out.comp.esn$beta.save[,-(1:n.burn)]
-beta.post <- cbind(beta.0.save, t(beta.save))
-W.full <- out.comp.esn$W.full
-
-# compute lambda in parallel
+## simulate points in parallel
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-lam.full.list <- foreach(k = 1:100) %dopar% {
-  lam.full <- exp(beta.post[k,1] + W.full%*%beta.post[k,-1])
-  lam.df <- as.data.frame(cbind(full.coord, lam.full))
-  
-  return(lam.df)
+L.fun.list <- foreach(k = 1:1000, .packages = c('spatstat', 'raster')) %dopar% {
+  sim.point <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win,
+                          nonwin = F)
+  sim.mat <- sim.point[[1]]
+  sim.ppp <- ppp(sim.mat[,1], sim.mat[,2], footprint.win)
+  sim.L <- Linhom(sim.ppp)
+  return(cbind(sim.L$r, sim.L$iso))
 }
 
 stopCluster(cl)
 
-# simulate points in parallel
-sim_points <- function(lam.df, survey.win, footprint.win){
-  lam <- lam.df$V3
-  lam.max <- max(lam)
-  M <- rpois(1, spatstat.geom::area.owin(survey.win)*lam.max)
-  superpop.full <- rpoint(M, win = survey.win)
-  
-  superpop <- cbind(superpop.full$x, superpop.full$y)
-  
-  is.superpop.win <- inside.owin(superpop.full$x, superpop.full$y, footprint.win)
-  superpop <- cbind(x = superpop.full$x, superpop.full$y)[which(is.superpop.win == TRUE),]
-  
-  lam.rast <- rasterFromXYZ(lam.df)
-  superpop.idx <- cellFromXY(lam.rast, superpop)
-  lam.superpop <- values(lam.rast)[superpop.idx]
-  lam.superpop.mat <- na.omit(cbind(superpop, lam.superpop))
-  M <- nrow(lam.superpop.mat)
-  
-  obs.idx <- rbinom(M,1,lam.superpop.mat[,3]/lam.max)==1 # thin
-  s.obs <- lam.superpop.mat[obs.idx,1:2] 
-  lam.obs <- lam.superpop.mat[obs.idx,3]
-  
-  return(list(s.obs, lam.obs))
+plot(x = L.fun.list[[1]][,1], y = L.fun.list[[1]][,1], type = 'l')
+for(i in 2:1000){
+  lines(x = L.fun.list[[i]][,1], y = L.fun.list[[i]][,2])
 }
+lines(x = obs.L$r, y = obs.L$iso, col = "red")
 
-cl <- makeCluster(detectCores()-2)
-registerDoParallel(cl)
-
-sim.points.list <- foreach(k = 1:100) %dopar% {
-  sim.point <- sim_points(lam.full.list[[k]], survey.win, footprint.win)
-  return(sim.point)
-}
-
-stopCluster(cl)
-
-
+## Bayesian p-value

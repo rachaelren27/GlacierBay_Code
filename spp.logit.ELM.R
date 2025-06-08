@@ -16,7 +16,7 @@ spp.logit.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, q.vec){
   for(l in 1:n.sim){
     q <- q.vec[l]
     A.save[[l]] <- matrix(rnorm(q*p), p, q)
-    W.save[[l]] <- scale(gelu(X.obs.aug%*%A.save[[l]]), center = F)
+    W.save[[l]] <- scale(gelu(X.obs.aug%*%A.save[[l]]))
     out.glm[[l]] <- glm(y.obs.binary ~ W.save[[l]],
                         family = binomial(link = "logit"))
     aic.vec[l] <- AIC(out.glm[[l]])
@@ -26,9 +26,8 @@ spp.logit.ELM <- function(X.obs.aug, X.full.aug, y.obs.binary, q.vec){
     
   A <- A.save[[best.idx]]
   W.obs <- W.save[[best.idx]]
-  W.full <- gelu(X.full.aug%*%A)
+  W.full <- scale(gelu(X.full.aug%*%A))
   
-  W.obs <- prcomp(W.obs)$x
   out.glm <- glm(y.obs.binary ~ W.obs, family = binomial(link = "logit"))
   
   beta.glm <- coef(out.glm)[-1]

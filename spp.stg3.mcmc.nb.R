@@ -25,8 +25,8 @@ spp.stg3.mcmc.nb <- function(out){
   sig.0 <- 10000*diag(p)
   
   # gamma prior hyperparameters
-  a <- 0.000001
-  b <- 0.000001
+  a <- 0.0000000001
+  b <- 0.0000000001
   
   beta.0.save <- rep(0, n.mcmc)
   beta.save <- matrix(0, p, n.mcmc)

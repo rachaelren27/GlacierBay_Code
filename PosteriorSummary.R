@@ -3,7 +3,7 @@ library(sf)
 library(tidyverse)
 library(spatstat)
 
-# --- Calculate intensity (lambda) using beta posterior samples-----------------
+# --- Calculate intensity (lambda) using beta posterior samples ----------------
 n.mcmc <- nrow(beta.post)
 beta.post.means <- apply(beta.post,2,mean)
 
@@ -60,27 +60,6 @@ post.mean.sim <- sim_points(lam.post.mean, length(seal.locs), survey.win,
                             footprint.win, nonwin = FALSE)
 post.mean.points <- post.mean.sim[[1]]
 post.mean.lam <- post.mean.sim[[2]]
-
-# lam.max <- max(lam.post.mean)
-# M <- rpois(1, area.owin(survey.win)*lam.max)
-# s.superpop.full <- rpoint(M, win = survey.win)
-# 
-# superpop.nonwin <- !inside.owin(s.superpop.full$x, s.superpop.full$y, footprint.win)
-# s.superpop.nonwin <- cbind(x = s.superpop.full$x, s.superpop.full$y)[which(superpop.nonwin == TRUE),]
-# M0 <- nrow(s.superpop.nonwin)
-# 
-# superpop.nonwin.idx <- cellFromXY(lam.post.mean.rast, s.superpop.nonwin)
-# lam.superpop.nonwin <- values(lam.post.mean.rast)[superpop.nonwin.idx]
-# lam.superpop.nonwin.mat <- na.omit(cbind(s.superpop.nonwin, lam.superpop.nonwin))
-# lam.superpop.nonwin.df <- as.data.frame(lam.superpop.nonwin.mat)
-# colnames(lam.superpop.nonwin.df) <- c("x", "y", "lambda")
-# 
-# obs.idx <- rbinom(M0,1,lam.superpop.nonwin.mat[,3]/lam.max)==1
-# s.obs <- lam.superpop.nonwin.mat[obs.idx,1:2] # total observed points 
-# lam.obs <- lam.superpop.nonwin.mat[obs.idx,3]
-# N0.pred <- nrow(s.obs)
-# n <- length(seal.locs)
-# N.pred <- N0.pred + n # total abundance estimate
 
 
 # --- Posterior for N ----------------------------------------------------------

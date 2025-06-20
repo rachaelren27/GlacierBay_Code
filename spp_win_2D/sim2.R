@@ -4,15 +4,14 @@ library(tidyverse)
 library(raster)
 library(spatstat)
 library(tictoc)
-library(here)
 library(viridis)
-library(rstanarm)
-library(pgdraw)
+# library(rstanarm)
+# library(pgdraw)
 library(mvnfast)
 library(coda)
 library(foreach)
 library(doParallel)
-library(vioplot)
+# library(vioplot)
 
 load(here("GlacierBay_Code","spp_win_2D", "sim2.RData"))
 set.seed(1234)
@@ -513,8 +512,8 @@ lines(density(out.glm.approx3$beta.0.save[-(1:n.burn)], n = 1000), col = "blue",
       lwd = 2)
 lines(density(out.bayes.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "orange",
       lwd = 2)
-lines(density(out.pois.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "purple", 
-      lwd = 2)
+# lines(density(out.pois.glm3$beta.0.save[-(1:n.burn)], n = 1000), col = "purple", 
+#       lwd = 2)
 lines(density(out.pg3$beta.0.save[-(1:n.burn)], n = 1000), col = "pink", 
       lwd = 2)
 abline(v = beta.0, lwd = 2, lty = 2)
@@ -530,8 +529,8 @@ lines(density(out.glm.approx3$beta.save[1,-(1:n.burn)], n = 1000), col = "blue",
       lwd = 2)
 lines(density(out.bayes.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "orange",
       lwd = 2)
-lines(density(out.pois.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "purple",
-      lwd = 2)
+# lines(density(out.pois.glm3$beta.save[1,-(1:n.burn)], n = 1000), col = "purple",
+#       lwd = 2)
 abline(v = beta[1], lwd = 2, lty = 2)
 # hist(out.comp.full$beta.save[2,-(1:n.burn)],prob=TRUE,breaks=60,main="",xlab=bquote(beta[2]),
 #      ylim = c(0,1), cex.axis=1.5, cex.lab=1.3)
@@ -543,8 +542,8 @@ lines(density(out.glm.approx3$beta.save[2, -(1:n.burn)], n=1000), col = "blue",
       lwd = 2)
 lines(density(out.bayes.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "orange",
       lwd = 2)
-lines(density(out.pois.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "purple",
-      lwd = 2)
+# lines(density(out.pois.glm3$beta.save[2,-(1:n.burn)], n = 1000), col = "purple",
+#       lwd = 2)
 lines(density(out.pg3$beta.save[2,-(1:n.burn)], n = 1000), col = "pink",
       lwd = 2)
 abline(v = beta[2], lwd = 2, lty = 2)

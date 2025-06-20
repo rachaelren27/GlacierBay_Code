@@ -17,13 +17,15 @@ library(viridis)
 library(foreach)
 library(doParallel)
 library(latex2exp)
+library(geosphere)
+library(bayesreg)
 
 load(here("SPP_script.RData"))
 set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
-year <- "2007"
-date <- "20070621"
+year <- "2010"
+date <- "20100614"
 
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "seal_locations_final",
              "pup_locs")
@@ -32,14 +34,14 @@ seal.locs <- st_read(dsn = path, layer = paste0("JHI_", date, "_pup_locs"))
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "footprints")
 footprint <- st_read(dsn = path, layer =  paste0("JHI_", date, "_footprint"))
 
-survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds")
+survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds_jun_6")
 
 # convert CRS
 survey.poly <- st_transform(survey.poly$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
-survey.poly.mat <- survey.poly[[1]][[1]]
-survey.win <- owin(poly = data.frame(x=terra::rev(survey.poly.mat[,1]),
-                                     y=terra::rev(survey.poly.mat[,2])))
+survey.poly.mat <- survey.poly[[1]][[1]][[1]]
+survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
+                                     y=rev(survey.poly.mat[,2])))
 
 seal.locs <- st_transform(seal.locs$geometry,
                           CRS("+proj=longlat +datum=WGS84"))
@@ -56,18 +58,17 @@ footprint <- st_transform(footprint$geometry,
 # crop footprint
 footprint <- st_intersection(footprint, survey.poly)
 
-# # plot seal pups
-# pdf(paste0(date, "_pups.pdf"))
-# ggplot() +
-#   geom_sf(data = survey.poly) +
-#   geom_sf(data = footprint) +
-#   geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") +
-#   theme_bw() +
-#   xlab("") +
-#   ylab("") +
-#   xlim(c(-137.14, -137))
-# dev.off()
-
+# plot seal pups
+pdf(paste0(date, "_pups.pdf"))
+ggplot() + 
+  geom_sf(data = survey.poly) + 
+  geom_sf(data = footprint) + 
+  geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") + 
+  theme_bw() + 
+  xlab("") + 
+  ylab("") + 
+  xlim(c(-137.14, -137))
+dev.off()
 
 # prepare windows
 footprints <- lapply(1:length(footprint), function(i) {
@@ -84,13 +85,12 @@ footprint.win <- do.call(union.owin, footprints)
 # --- Read in covariates -------------------------------------------------------
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
-bath.rast <- raster::crop(bath.rast, extent(survey.poly.mat))
-bath.rast <- raster::mask(bath.rast, as(survey.poly, 'Spatial'))
 
-ice.rast <- raster(here("covariates", paste0("cropped_LK_ice_estimates_", date, ".tiff")))
+ice.rast <- raster(here("covariates", paste0("LK_ice_estimates_", date,
+                                             ".tiff")))
 ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
 ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
-# plot(ice.rast)
+plot(ice.rast)
 
 # ice.df <- as.data.frame(cbind(xyFromCell(ice.rast, 1:length(ice.rast)),
 #                               values(ice.rast)))
@@ -107,20 +107,22 @@ ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))
 #   # coord_sf(xlim = c(NA, -137.06), ylim = c(NA, 58.86))
 
 glac.dist.rast <- raster(here("covariates", "glacier_dist.tiff"))
-glac.dist.rast <- raster::crop(glac.dist.rast, extent(survey.poly.mat))
-glac.dist.rast <- raster::mask(glac.dist.rast, as(survey.poly, 'Spatial'))
 
 ## crop using survey boundary
+bath.rast.survey <- raster::crop(bath.rast, extent(survey.poly.mat))
+bath.rast.survey <- raster::mask(bath.rast.survey, as(survey.poly, 'Spatial'))
 
+glac.dist.rast <- raster::crop(glac.dist.rast, extent(survey.poly.mat))
+glac.dist.rast <- raster::mask(glac.dist.rast, as(survey.poly, 'Spatial'))
 # # remove NAs
-# s.bath.rast <- xyFromCell(bath.rast, which(!is.na(values(bath.rast))))
+# s.bath.rast <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
 # bath.rast.df <- data.frame(x = s.bath.rast[,1], y = s.bath.rast[,2],
-#                            z = na.omit(values(bath.rast)))
-# bath.rast.noNA <- rasterFromXYZ(bath.rast.df)
-# extent(bath.rast.noNA) <- extent(survey.poly.mat)
+#                            z = na.omit(values(bath.rast.survey)))
+# bath.rast.survey.noNA <- rasterFromXYZ(bath.rast.df)
+# extent(bath.rast.survey.noNA) <- extent(survey.poly.mat)
 
-# s.bath.rast.na <- xyFromCell(bath.rast, which(is.na(values(bath.rast))))
-# plot(bath.rast)
+# s.bath.rast.na <- xyFromCell(bath.rast.survey, which(is.na(values(bath.rast.survey))))
+# plot(bath.rast.survey)
 # plot(survey.poly, add = TRUE)
 # points(x = s.bath.rast.na[,1], y = s.bath.rast.na[,2])
 
@@ -141,8 +143,8 @@ glac.dist.rast <- raster::mask(glac.dist.rast, as(survey.poly, 'Spatial'))
 # # calculate glacier distance
 # seal.glac.dist <- dist2Line(seal.mat, glacier.poly) # in meters
 # 
-# bath.survey.idx <- which(!is.na(values(bath.rast)))
-# full.coord <- xyFromCell(bath.rast, bath.survey.idx)
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
 # 
 # full.glac.dist <- dist2Line(full.coord, glacier.poly) # takes a while
 # 
@@ -161,15 +163,20 @@ ex.win <- owin(poly = data.frame(x = footprint[[1]][[1]][,1],
                                  y = footprint[[1]][[1]][,2]))
 win.area <- area.owin(ex.win) # approx. bc windows not equally sized
 
-ds <- res(bath.rast)[1]*res(bath.rast)[2]
+ds <- res(bath.rast.survey)[1]*res(bath.rast.survey)[2]
+  
 
+# --- Set X matrices -----------------------------------------------------------
+# glac.dist <- full.glac.dist[,1]
 
-# --- Define X matrices --------------------------------------------------------
+# bath.survey.idx <- which(!is.na(values(bath.rast.survey)))
+# full.coord <- xyFromCell(bath.rast.survey, bath.survey.idx)
+
 ice.idx <- which(!is.na(values(ice.rast)))
 ice.full.coord <- xyFromCell(ice.rast, ice.idx)
 
-bath.idx <- cellFromXY(bath.rast, ice.full.coord)
-bath <- values(bath.rast)[bath.idx]
+bath.idx <- cellFromXY(bath.rast.survey, ice.full.coord)
+bath <- values(bath.rast.survey)[bath.idx]
 glac.dist.idx <- cellFromXY(glac.dist.rast, ice.full.coord)
 glac.dist <- values(glac.dist.rast)[glac.dist.idx]
 
@@ -194,7 +201,6 @@ X.win.full <- X.full[win.idx,]
 X.obs <- X.full[seal.idx,]
 n <- nrow(X.obs)
 p <- ncol(X.obs)
-
 
 # --- Fit SPP w/ Complete Likelihood -------------------------------------------
 n.mcmc <- 100000
@@ -281,13 +287,94 @@ sd(N.comp.save)
 quantile(N.comp.save, c(0.025, 0.975))
 
 
-# --- Berman Turner Device -----------------------------------------------------
+# --- Fit comp. likelihood w/ ELM ----------------------------------------------
+source(here("GlacierBay_Code", "spp.comp.ELM.mcmc.R"))
+# X.full <- cbind(X.full, full.coord)
+
+theta.tune <- 0.1
+beta.tune <- 0.001
+q <- 5
+lambda <- 1/100
+tic()
+out.comp.esn <- spp.comp.ELM.mcmc(seal.mat, X.full,
+                               win.idx, seal.idx, ds, n.mcmc, theta.tune, 
+                               beta.tune, q, lambda)
+toc()
+
+matplot(t(out.comp.esn$beta.save), type = 'l')
+
+q <- 12:20
+q.lambda <- expand.grid(q,lambda)
+
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+out.comp.esn.list2 <- foreach(k = 1:length(q)) %dopar% {
+  q <- q[k]
+  lambda <- 1/100
+  out.comp.esn <- spp.comp.ESN.mcmc(seal.mat, scale(cbind(X.full, full.coord)),
+                                    win.idx, seal.idx, ds, n.mcmc, theta.tune, 
+                                    beta.tune, q, lambda)
+  
+  return(out.comp.esn)
+}
+
+stopCluster(cl)
+
+# --- Fit SPP w/ cond. likelihood (num quad stage 1) ---------------------------
+source(here("GlacierBay_Code", "spp_win_2D", "spp.cond.mcmc.R"))
+tic()
+out.cond.full=spp.cond.mcmc(seal.mat,X.obs,X.win.full,ds,n.mcmc)
+toc() # 290.419 sec (~4.7 min)
+
+# discard burn-in
+beta.save <- out.cond.full$beta.save[,-(1:n.burn)]
+beta.0.save <- out.cond.full$beta.0.save[-(1:n.burn)]
+
+# trace plots
+layout(matrix(1:2,2,1))
+# plot(out.cond.full$beta.0.save,type="l")
+matplot(t(out.cond.full$beta.save),lty=1,type="l")
+
+# posterior summary
+beta.save.full <- t(rbind(beta.0.save, beta.save))
+vioplot(data.frame(beta.save.full),
+        names=expression(beta[0],beta[1],beta[2]),
+        ylim = c(-10,5))
+abline(h = 0, lty = 2)
+
+apply(beta.save.full,2,mean) 
+apply(beta.save.full,2,sd) 
+apply(beta.save.full,2,quantile,c(0.025,.975))
+
+# --- Sample beta_0 using num quad stage 1 samples -----------------------------
+beta.save <- out.cond.full$beta.save
+theta.save <- rep(0,n.mcmc)
+
+for(k in 1:n.mcmc){
+  if(k%%1000==0){cat(k," ")}
+  lam.int <- sum(exp(log(ds)+X.full%*%beta.save[,k]))
+  theta.save[k] <- rgamma(1, 0.01 + n, 0.01 + lam.int)
+};cat("\n")
+
+beta.0.save <- log(theta.save)
+
+plot(beta.0.save, type ="l")
+
+# --- Fit SPP using cond. likelihood (glm stage 1) ------------------------
+# obtain background sample
 n.bg <- 100000
 bg.pts <- rpoint(n.bg, win = footprint.win)
-
+  
+# ggplot() + 
+#   geom_sf(data = survey.poly) + 
+#   geom_sf(data = footprint) + 
+#   geom_point(aes(x = bg.pts$x, y = bg.pts$y), size = 0.3) + 
+#   geom_sf(data = seal.locs, size = 0.3, col = "red")
+   
 # prepare covariates for background sample 
 bg.mat <- cbind(bg.pts$x, bg.pts$y)
-
+  
 bg.full.idx <- cellFromXY(ice.rast, bg.mat)
 row.counts <- table(factor(bg.full.idx, levels = 1:length(ice.rast)))
 ice.full.counts <- cbind(values(ice.rast), row.counts)
@@ -300,96 +387,59 @@ for(i in 1:nrow(X.full)){
   }
 }
 
-X.obs.bg <- X.full[c(seal.idx, bg.idx),]
+X.obs.aug <- X.full[c(seal.idx, bg.idx),]
 y.obs.binary <- rep(0, n + length(bg.idx))
 y.obs.binary[1:n] <- 1
-logist.df <- data.frame(y = y.obs.binary, ice = X.obs.bg[,1], 
-                       bath = X.obs.bg[,2], glac.dist = X.obs.bg[,3])
+logit.obs.df <- data.frame(y = y.obs.binary, ice = X.obs.aug[,1], 
+                           bath = X.obs.aug[,2], glac.dist = X.obs.aug[,3])
 
-X.full.bg <- rbind(X.full, X.full[bg.idx,])
-X.win.bg <- X.full[c(win.idx, bg.idx),]
+X.full.aug <- rbind(X.full, X.full[bg.idx,])
+X.win.aug <- X.full[c(win.idx, bg.idx),]
 
-# # vanilla Bayesian glm
-# tic()
-# out.bern.cond.bayes <- stan_glm(y ~ ice + bath + glac.dist, data = logist.df,
-#                                 family = binomial(link="logit"), iter = n.mcmc,
-#                                 warmup = 0.1*n.mcmc, chains = 1)
-# toc()
-
-
-# --- Non-Bayesian GLM Exact + ELM ---------------------------------------------
-## training + first stage
-q.vec <- rep(seq(from = 5, to = 100, by = 5), each = 10)
-source(here("GlacierBay_Code", "spp.logit.ELM.R"))
+# vanilla glm
 tic()
-out.glm.ELM <- spp.logit.ELM(X.obs.bg, X.full.bg, y.obs.binary, 
-                              q.vec)
-toc() # 151 sec
+out.bern.cond <- glm(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+                     family=binomial(link="logit"))
+toc() # 0.17
+beta.glm <- coef(out.bern.cond)[-1]
+cov.glm <- vcov(out.bern.cond)[-1,-1]
 
-W.win.full <- out.glm.ELM$W.full[win.idx,]
-W.obs <- out.glm.ELM$W.obs
-beta.glm <- out.glm.ELM$beta.glm
-vcov.glm <- out.glm.ELM$vcov.glm
-beta.save <- mvnfast::rmvn(n.mcmc, beta.glm, vcov.glm)
-
-## stage two
-print("Non-Bayesian GLM exact time (stage 2): ")
-cl <- makeCluster(detectCores()-1)
-registerDoParallel(cl)
-
+# vanilla Bayesian glm
 tic()
-lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + W.win.full%*%beta.save[k,]))
-  return(lam.int)
-}
-
-W.beta.sum.save <- foreach(k = 1:nrow(beta.save)) %dopar% {
-  W.beta.sum <- sum(W.obs%*%beta.save[k,])
-  return(W.beta.sum)
-}
-toc() # 31 sec
-
-stopCluster(cl) 
-
-out.glm.ELM2 <- list(beta.save = t(beta.save), mu.beta = beta.glm, sigma.beta = vcov.glm,
-                 n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full,
-                 X.beta.sum.save = W.beta.sum.save, lam.int.save = lam.int.save)
-
-## stage 3
-print("Non-Bayesian GLM exact time (stage 3): ")
-source(here("GlacierBay_Code", "spp.stg3.mcmc.nb.R"))
-tic()
-out.glm.ELM3 <- spp.stg3.mcmc.nb(out.glm.ELM2)
+out.bern.cond.bayes <- stan_glm(y ~ ice + bath + glac.dist, data = logit.obs.df,
+                                family = binomial(link="logit"), iter = n.mcmc,
+                                warmup = 0.1*n.mcmc, chains = 1)
 toc()
 
-beta.save <- out.glm3$beta.save
-beta.0.save <- out.glm3$beta.0.save
 
-print("beta0 effective size: ")
-effectiveSize(beta.0.save)
-print("beta1 effective size: ")
-effectiveSize(beta.save[1,])
-print("beta2 effective size:" )
-effectiveSize(beta.save[2,])
+# # vanilla logistic bayesreg
+# tic()
+# out.bern.cond <- bayesreg(y ~ ice + bath + glac.dist, data = logit.obs.df, 
+#                           model = "logistic", n.samples = n.mcmc, burnin = n.burn)
+# toc()
+# 
 
-# # trace plots
-# layout(matrix(1:2,2,1))
-# plot(beta.0.save,type="l")
-# plot(beta.save[1,], type = "l")
-# plot(beta.save[2,], type = "l")
-# 
-# matplot(t(beta.save)[,1:5],lty=1,type="l")
-# 
-# # posterior summary
-# beta.save.full <- t(rbind(beta.0.save, beta.save))
-# vioplot(data.frame(beta.save.full),
-#         names=expression(beta[0],beta[1],beta[2]),
-#         ylim = c(-10,5))
-# abline(h = 0, lty = 2)
-# 
-# beta.post.means <- apply(beta.save.full,2,mean) 
-# beta.post.sd <- apply(beta.save.full,2,sd) 
-# apply(beta.save.full,2,quantile,c(0.025,.975))
+# ELM logistic non-Bayes
+q.vec <- seq(from = 10, to = 100, by = 10)
+pi.vec <- 0.8 # sparsity param
+gamma.vec <- c(0.5, 1, 2) # scale param
+tune.mat <- expand.grid(q = q.vec, pi = pi.vec, gamma = gamma.vec)
+
+source(here("GlacierBay_Code", "spp.logit.ELM.R"))
+tic()
+out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
+                              tune.mat)
+toc()
+
+W.win.full <- out.bern.ELM$W.full[win.idx,]
+W.obs <- out.bern.ELM$W.obs
+beta.glm <- out.bern.ELM$beta.glm
+vcov.glm <- out.bern.ELM$vcov.glm
+beta.save <- mvnfast::rmvn(n.mcmc, beta.glm, vcov.glm)
+
+# # prepare for second stage
+# out.cond.bern <- list(beta.save = beta.save, 
+#                       n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full)
 
 
 # --- Fit SPP using cond. likelihood (Polya-gamma stage 1) ---------------------
@@ -443,7 +493,7 @@ dev.off()
 
 
 # --- 2nd stage - compute lambda integrals -------------------------------------
-W.win.full <- out.glm.ELM$W.full[win.idx,]
+W.win.full <- out.bern.ELM$W.full[win.idx,]
 
 # beta.save <- mvnfast::rmvn(n.mcmc, mu = beta.glm, sigma = cov.glm)
 lam.int.save <- rep(0, n.mcmc)
@@ -561,7 +611,7 @@ points(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-
 N.save <- rep(0, n.mcmc)
 
 # X.nowin.full <- X.full[-win.idx,]
-W.full <- out.glm.ELM$W.full[(1:nrow(X.full)),]
+W.full <- out.bern.ELM$W.full[(1:nrow(X.full)),]
 W.nowin.full <- W.full[-win.idx,]
 n <- nrow(seal.mat)
 
@@ -593,8 +643,7 @@ out.comp.esn <- out.cond.pg3
 beta.0.save <- out.comp.esn$beta.0.save
 beta.save <- out.comp.esn$beta.save
 beta.save.full <- cbind(beta.0.save, t(beta.save))
-W.full <- out.glm.ELM$W.full[1:nrow(X.full),]
-W.win <- W.full[win.idx,]
+W.full <- out.bern.ELM$W.full[1:nrow(X.full),]
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)
@@ -611,8 +660,8 @@ plot(lam.full.rast, col = viridis(100))
 # dev.off()
 
 # --- Simulating seal realizations ---------------------------------------------
-sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, win = TRUE){
-  if(!win){
+sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, nonwin = TRUE){
+  if(nonwin){
     lam <- lam[-win.idx]
     coord <- full.coord[-win.idx,]
   } else{
@@ -623,7 +672,7 @@ sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, win 
   M <- rpois(1, area.owin(survey.win)*lam.max)
   superpop.full <- rpoint(M, win = survey.win)
   
-  if(!win){
+  if(nonwin){
     is.superpop.nonwin <- !inside.owin(superpop.full$x, superpop.full$y, footprint.win)
     superpop <- cbind(x = superpop.full$x, superpop.full$y)[which(is.superpop.nonwin == TRUE),]
     
@@ -645,11 +694,12 @@ sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, win 
   return(list(s.obs, lam.obs))
 }
 
-sim.points <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win)
+sim.points <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win, 
+                         nonwin = F)
   
-# # check how many seals on 0 ice
-# seal.ice.idx <- cellFromXY(ice.rast, sim.points[[s.obs]])
-# num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
+# check how many seals on 0 ice
+seal.ice.idx <- cellFromXY(ice.rast, sim.points[[s.obs]])
+num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
 
 # pdf("simulate_08132007_2.pdf")
 s.obs <- sim.points[[1]]
@@ -668,56 +718,35 @@ ggplot() +
 
 sim.ppp <- ppp(s.obs[,1], s.obs[,2], window = footprint.win)
 sim.L <- Linhom(sim.ppp)
-plot(x = obs.L$r, y = obs.L$trans, type = "l", col = "red")
-lines(x = sim.L$r, y = sim.L$trans)
+plot(x = obs.L$r, y = obs.L$iso, type = "l", col = "red")
+lines(x = sim.L$r, y = sim.L$iso)
 
 # --- L-function p-value -------------------------------------------------------
-# compute L-function for observed data
+## compute L-function for observed data
 obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
 obs.L <- Linhom(obs.ppp)
-plot(x = obs.L$r, y = obs.L$trans, type = "l")
+plot(x = obs.L$r, y = obs.L$iso, type = "l")
+# lines(x = obs.L$r, y = obs.L$theo)
 
-# compute lambda in parallel
-beta.post <- t(rbind(beta.0.save, beta.save))
-  
+## simulate points in parallel
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-lam.win.mat <- foreach(k = 1:n.mcmc, .combine = cbind) %dopar% {
-  lam.win <- exp(beta.post[k,1] + W.win%*%beta.post[k,-1])
-  return(lam.win)
-}
-
-stopCluster(cl)
-
-# simulate points in parallel
-cl <- makeCluster(detectCores()-2)
-registerDoParallel(cl)
-
-L.fun.list <- foreach(k = 1:n.mcmc, .packages = c('spatstat', 'raster')) %dopar% {
-  sim.point <- sim_points(lam.win.mat[,k], full.coord, win.idx, survey.win, footprint.win,
+L.fun.list <- foreach(k = 1:1000, .packages = c('spatstat', 'raster')) %dopar% {
+  sim.point <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win,
                           nonwin = F)
   sim.mat <- sim.point[[1]]
   sim.ppp <- ppp(sim.mat[,1], sim.mat[,2], footprint.win)
   sim.L <- Linhom(sim.ppp)
-  return(cbind(sim.L$r, sim.L$trans))
+  return(cbind(sim.L$r, sim.L$iso))
 }
 
 stopCluster(cl)
 
-plot(x = L.fun.list[[1]][,1], y = L.fun.list[[1]][,2], type = 'l')
-for(i in 2:n.mcmc){
+plot(x = L.fun.list[[1]][,1], y = L.fun.list[[1]][,1], type = 'l')
+for(i in 2:1000){
   lines(x = L.fun.list[[i]][,1], y = L.fun.list[[i]][,2])
 }
-lines(x = obs.L$r, y = obs.L$trans, col = "red")
-# points(x = obs.L$r[50*(1:10)], y = obs.L$trans[50*(1:10)], col = "green", pch = 19)
+lines(x = obs.L$r, y = obs.L$iso, col = "red")
 
-# Bayesian p-value
-sim.trans.mat <- matrix(NA, nrow = length(obs.L$r), ncol = length(L.fun.list))
-
-for (i in 1:n.mcmc) {
-  sim.trans.mat[,i] <- L.fun.list[[i]][,2]
-}
-
-bayes.p <- rowSums(sim.trans.mat < obs.L$trans)/1000
-plot(x = obs.L$r, y = bayes.p, type = 'l')
+## Bayesian p-value

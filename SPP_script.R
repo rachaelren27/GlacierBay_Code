@@ -319,10 +319,10 @@ X.win.bg <- X.full[c(win.idx, bg.idx),]
 
 # --- Non-Bayesian GLM Exact + ELM ---------------------------------------------
 ## training + first stage
-q.vec <- rep(seq(from = 5, to = 100, by = 5), each = 10)
+q.vec <- rep(seq(from = 5, to = 50, by = 5), each = 10)
 source(here("GlacierBay_Code", "spp.logit.ELM.R"))
 tic()
-out.glm.ELM <- spp.logit.ELM(X.obs.bg, X.full.bg, y.obs.binary, 
+out.glm.ELM <- spp.logit.ELM(X.obs.aug, X.full, y.obs.binary, 
                               q.vec)
 toc() # 151 sec
 
@@ -338,20 +338,20 @@ cl <- makeCluster(detectCores()-1)
 registerDoParallel(cl)
 
 tic()
-lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
-  lam.int <- sum(exp(log(ds) + W.win.full%*%beta.save[k,]))
+lam.int.save <- foreach(k = 1:ncol(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + W.win.full%*%beta.save[,k]))
   return(lam.int)
 }
 
-W.beta.sum.save <- foreach(k = 1:nrow(beta.save)) %dopar% {
-  W.beta.sum <- sum(W.obs%*%beta.save[k,])
+W.beta.sum.save <- foreach(k = 1:ncol(beta.save)) %dopar% {
+  W.beta.sum <- sum(W.obs%*%beta.save[,k])
   return(W.beta.sum)
 }
 toc() # 31 sec
 
 stopCluster(cl) 
 
-out.glm.ELM2 <- list(beta.save = t(beta.save), mu.beta = beta.glm, sigma.beta = vcov.glm,
+out.glm.ELM2 <- list(beta.save = beta.save, mu.beta = beta.glm, sigma.beta = vcov.glm,
                  n.mcmc = n.mcmc, n = n, ds = ds, X.full = W.win.full,
                  X.beta.sum.save = W.beta.sum.save, lam.int.save = lam.int.save)
 
@@ -561,13 +561,13 @@ points(x = out.cond.pg3$beta.save[2,-(1:n.burn)], y = out.cond.pg3$beta.save[3,-
 N.save <- rep(0, n.mcmc)
 
 # X.nowin.full <- X.full[-win.idx,]
-W.full <- out.glm.ELM$W.full[(1:nrow(X.full)),]
+W.full <- out.bern.ELM$W.full[(1:nrow(X.full)),]
 W.nowin.full <- W.full[-win.idx,]
 n <- nrow(seal.mat)
 
 for(k in 1:(n.mcmc)){
   if(k%%10000==0){cat(k," ")}
-  beta.0.tmp=out.cond.pg3$beta.0.save[k]
+  beta.0.tmp=out.bern.ELM$beta.0.save[k]
   beta.tmp=out.cond.pg3$beta.save[,k]
   lam.nowin.int=sum(exp(log(ds)+beta.0.tmp+W.nowin.full%*%beta.tmp))
   N.save[k]=n+rpois(1,lam.nowin.int)
@@ -593,7 +593,7 @@ out.comp.esn <- out.cond.pg3
 beta.0.save <- out.comp.esn$beta.0.save
 beta.save <- out.comp.esn$beta.save
 beta.save.full <- cbind(beta.0.save, t(beta.save))
-W.full <- out.glm.ELM$W.full[1:nrow(X.full),]
+W.full <- out.comp.esn$W.full
 W.win <- W.full[win.idx,]
 
 # posterior mean heat map
@@ -677,15 +677,15 @@ obs.ppp <- ppp(seal.mat[,1], seal.mat[,2], window = footprint.win)
 obs.L <- Linhom(obs.ppp)
 plot(x = obs.L$r, y = obs.L$trans, type = "l")
 
-# compute lambda in parallel
 beta.post <- t(rbind(beta.0.save, beta.save))
-  
+
+# compute lambda in parallel  
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-lam.win.mat <- foreach(k = 1:n.mcmc, .combine = cbind) %dopar% {
-  lam.win <- exp(beta.post[k,1] + W.win%*%beta.post[k,-1])
-  return(lam.win)
+lam.mat <- foreach(k = 1:100, .combine = cbind) %dopar% {
+  lam.mat <- exp(beta.post[k,1] + W.full%*%beta.post[k,-1])
+  return(lam.mat)
 }
 
 stopCluster(cl)
@@ -694,30 +694,31 @@ stopCluster(cl)
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-L.fun.list <- foreach(k = 1:n.mcmc, .packages = c('spatstat', 'raster')) %dopar% {
-  sim.point <- sim_points(lam.win.mat[,k], full.coord, win.idx, survey.win, footprint.win,
-                          nonwin = F)
+L.fun.list <- foreach(k = 1:100, .packages = c('spatstat', 'raster')) %dopar% {
+  sim.point <- sim_points(lam.mat[,k], ice.full.coord, win.idx, survey.win, footprint.win)
   sim.mat <- sim.point[[1]]
   sim.ppp <- ppp(sim.mat[,1], sim.mat[,2], footprint.win)
   sim.L <- Linhom(sim.ppp)
-  return(cbind(sim.L$r, sim.L$trans))
+  return(cbind(sim.L$r, sim.L$iso))
 }
 
 stopCluster(cl)
 
-plot(x = L.fun.list[[1]][,1], y = L.fun.list[[1]][,2], type = 'l')
-for(i in 2:n.mcmc){
-  lines(x = L.fun.list[[i]][,1], y = L.fun.list[[i]][,2])
+plot(x = L.fun.list[[1]][,1], y = L.fun.list[[1]][,2] - L.fun.list[[1]][,1], 
+     type = 'l', ylim = c(min(obs.L$iso - obs.L$r), max(obs.L$iso - obs.L$r)))
+for(i in 2:100){
+  lines(x = L.fun.list[[i]][,1], y = L.fun.list[[i]][,2] - L.fun.list[[i]][,1])
 }
-lines(x = obs.L$r, y = obs.L$trans, col = "red")
+lines(x = obs.L$r, y = obs.L$iso - obs.L$r, col = "red")
+lines(x = obs.L$r, y = rep(0, length(obs.L$r)), col = "blue")
 # points(x = obs.L$r[50*(1:10)], y = obs.L$trans[50*(1:10)], col = "green", pch = 19)
 
 # Bayesian p-value
-sim.trans.mat <- matrix(NA, nrow = length(obs.L$r), ncol = length(L.fun.list))
+sim.iso.mat <- matrix(NA, nrow = length(obs.L$r), ncol = length(L.fun.list))
 
 for (i in 1:n.mcmc) {
-  sim.trans.mat[,i] <- L.fun.list[[i]][,2]
+  sim.iso.mat[,i] <- L.fun.list[[i]][,2]
 }
 
-bayes.p <- rowSums(sim.trans.mat < obs.L$trans)/1000
-plot(x = obs.L$r, y = bayes.p, type = 'l')
+bayes.p <- rowSums(sim.iso.mat < obs.L$iso)/n.mcmc
+# plot(x = obs.L$r, y = bayes.p, type = 'l')

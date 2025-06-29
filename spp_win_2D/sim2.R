@@ -87,9 +87,10 @@ full.df <- as.data.frame(cbind(s.full, x1, x2, lam.full))
 # ggplot(data = full.df, aes(x = x, y = y, col = y)) + 
 #   geom_point(size = 0.5)
 # 
-# ggplot() +
-#   geom_tile(data = full.df, aes(x = x, y = y, fill = lam.full)) + 
-#   labs(fill = "lambda")
+ggplot() +
+  geom_tile(data = full.df, aes(x = x, y = y, fill = lam.full)) +
+  scale_fill_viridis(name = "lambda") +
+  theme_classic()
 # 
 # # create full raster
 full.df <- full.df %>% rename(z = lam.full)

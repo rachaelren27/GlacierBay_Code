@@ -24,37 +24,27 @@ lam.post.mean.rast <- rasterFromXYZ(lam.post.mean.df)
 
 
 # --- Simulate point realizations from posterior intensity ---------------------
-sim_points <- function(lam, n, survey.win, footprint.win, nonwin = TRUE){
+sim_points_full <- function(lam, full.coord, survey.win){
   lam.max <- max(lam)
   M <- rpois(1, area.owin(survey.win)*lam.max)
   superpop.full <- rpoint(M, win = survey.win)
   
-  if(nonwin){
-    is.superpop.nonwin <- !inside.owin(superpop.full$x, superpop.full$y, footprint.win)
-    superpop <- cbind(x = superpop.full$x, superpop.full$y)[which(is.superpop.nonwin == TRUE),]
-    
-  } else{
-    superpop <- cbind(superpop.full$x, superpop.full$y)
-  }
+  superpop <- cbind(superpop.full$x, superpop.full$y)
   
-  superpop.idx <- cellFromXY(lam.post.mean.rast, superpop)
-  lam.superpop <- values(lam.post.mean.rast)[superpop.idx]
+  lam.df <- data.frame(x = full.coord[,1], y = full.coord[,2], z = lam)
+  lam.rast <- rasterFromXYZ(lam.df)
+  superpop.idx <- cellFromXY(lam.rast, superpop)
+  lam.superpop <- values(lam.rast)[superpop.idx]
   lam.superpop.mat <- na.omit(cbind(superpop, lam.superpop))
   M <- nrow(lam.superpop.mat)
-
+  
   obs.idx <- rbinom(M,1,lam.superpop.mat[,3]/lam.max)==1
   s.obs <- lam.superpop.mat[obs.idx,1:2] # total observed points 
   lam.obs <- lam.superpop.mat[obs.idx,3]
   
-  if(nonwin){
-    N0.pred <- nrow(s.obs)
-    N.pred <- N0.pred + n
-  } else{
-    N.pred <- nrow(s.obs)
-  }
-  
-  return(list(s.obs, lam.obs, N.pred))
+  return(list(s.obs, lam.obs))
 }
+
 
 post.mean.sim <- sim_points(lam.post.mean, length(seal.locs), survey.win,
                             footprint.win, nonwin = FALSE)
@@ -114,30 +104,15 @@ coarse.rast <- rast(ext(survey.vect), resolution = 0.00125)
 values(coarse.rast) <- rep(0, dim(coarse.rast)[1]*dim(coarse.rast)[2], crs = "WGS84")
 coarse.rast <- mask(coarse.rast, survey.vect)
 
-# s.sim <- post.mean.sim[[1]]
-# cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim))
-# 
 s.full <- xyFromCell(coarse.rast, cell = 1:(dim(coarse.rast)[1]*dim(coarse.rast)[2]))
-# count.mat <- cbind(s.full, z = values(coarse.rast))
-# count.mat[as.integer(names(cell.counts)),3] <- cell.counts
-# count.rast <- rasterFromXYZ(count.mat)
-# 
-# plot(count.rast, col = viridis(100))
-# points(x = seal.mat[,1], y = seal.mat[,2], col = "red", pch = 19, cex = 0.1)
-
-# # crop survey boundary
-# count.rast <- terra::rast(count.rast)
-# count.rast <- mask(count.rast, survey.vect)
-# plot(count.rast, col = viridis(100), ylim = c(58.82, 58.92), xlim = c(-137.15, -137))
 
 # compute count posterior mean and variance
 s.sim.list <- list()
-count.mat <- matrix(0, nrow = (n.mcmc - n.burn), ncol = length(values(coarse.rast)))
-for(i in 1:(n.mcmc - n.burn)){
+count.mat <- matrix(0, nrow = n.mcmc, ncol = length(values(coarse.rast)))
+for(i in 1:n.mcmc){
   lambda.full <- calc_lambda(W.full, beta.save.full[i,])
-  s.sim.list[[i]] <- sim_points(lambda.full, n, survey.win,
-                                footprint.win, nonwin = FALSE)[[1]]
-  cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim))
+  s.sim.list[[i]] <- sim_points_full(lambda.full, ice.full.coord, survey.win)[[1]]
+  cell.counts <- table(cellFromXY(coarse.rast, xy = s.sim.list[[i]]))
   count.mat[i, as.integer(names(cell.counts))] <- cell.counts
   if(i %% 100 == 0){
     print(i)
@@ -153,11 +128,12 @@ plot(count.rast.mean)
 
 rast.df <- as.data.frame(count.rast.mean, xy = TRUE, na.rm = TRUE)
 
-pdf("posterior_mean_count_20070621.pdf", compress = FALSE)
-ggplot(data = as.data.frame(rast.df)) + 
-  geom_tile(aes(x = x, y = y, fill = z, col = z)) +
+pdf("post_count_20070621.pdf", compress = FALSE)
+ggplot() + 
+  geom_tile(data = as.data.frame(rast.df), aes(x = x, y = y, fill = z, col = z)) +
   scale_color_viridis_c(guide = "none") +
   scale_fill_viridis_c(name = "count") +
+  # geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") + 
   theme(
     legend.position = "right",
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),  
@@ -183,3 +159,52 @@ pdf("N_post_pred.pdf")
 hist(count.sum, main = NULL, xlab = "Total Abundance", breaks = 30, prob = TRUE,
      ylab = "Probability")
 dev.off()
+
+# --- L-function Model Checking ------------------------------------------------
+# compute L
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+L.fun.list <- foreach(k = 1:n.mcmc, .packages = c('spatstat', 'raster')) %dopar% {
+  sim.mat <- s.sim.list[[k]]
+  sim.ppp <- ppp(sim.mat[,1], sim.mat[,2], footprint.win)
+  sim.L <- Linhom(sim.ppp)
+  return(cbind(sim.L$r, sim.L$iso))
+}
+
+stopCluster(cl)
+
+# plot L functions
+L.df <- lapply(1:1000, function(i) {
+  df <- as.data.frame(L.fun.list[[i]])
+  names(df) <- c("r", "Lr")
+  df$iso <- df$Lr - df$r
+  df$sim_id <- i
+  df
+}) %>% bind_rows()
+
+obs.df <- data.frame(r = obs.L$r,
+                     iso = obs.L$iso - obs.L$r)
+
+baseline.df <- data.frame(r = obs.L$r,
+                          iso = 0)
+
+L.fun.plot <- ggplot() +
+  geom_line(data = L.df, aes(x = r, y = iso, group = sim_id), color = "gray60", alpha = 0.6) +
+  geom_line(data = baseline.df, aes(x = r, y = iso), color = "black", linetype = "dashed") +
+  geom_line(data = obs.df, aes(x = r, y = iso), color = "red", linewidth = 1) +
+  labs(x = "r", y = "L(r) - r") +
+  theme_classic() + 
+  theme(axis.text = element_text(size = 16),
+        axis.title = element_text(size = 16))
+
+# Bayesian p-value
+sim.iso.mat <- matrix(NA, nrow = length(obs.L$r), ncol = length(L.fun.list))
+
+for (i in 1:1000) {
+  sim.iso.mat[,i] <- L.fun.list[[i]][,2]
+}
+
+bayes.p <- rowSums(sim.iso.mat < obs.L$iso)/1000
+
+plot(bayes.p)

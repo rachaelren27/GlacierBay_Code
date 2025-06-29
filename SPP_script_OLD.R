@@ -402,7 +402,9 @@ out.bern.cond <- glm(y ~ ice + bath + glac.dist, data = logit.obs.df,
                      family=binomial(link="logit"))
 toc() # 0.17
 beta.glm <- coef(out.bern.cond)[-1]
-cov.glm <- vcov(out.bern.cond)[-1,-1]
+vcov.glm <- vcov(out.bern.cond)[-1,-1]
+
+beta.save <- rmvn(n.mcmc, beta.glm, vcov.glm)
 
 # vanilla Bayesian glm
 tic()
@@ -420,15 +422,14 @@ toc()
 # 
 
 # ELM logistic non-Bayes
-q.vec <- seq(from = 10, to = 100, by = 10)
-pi.vec <- 0.8 # sparsity param
-gamma.vec <- c(0.5, 1, 2) # scale param
-tune.mat <- expand.grid(q = q.vec, pi = pi.vec, gamma = gamma.vec)
+q.vec <- rep(5, 100)
+gamma.vec <- c(0.1, 0.5, 1) # scale param
+tune.mat <- expand.grid(q = q.vec, gamma = gamma.vec)
 
 source(here("GlacierBay_Code", "spp.logit.ELM.R"))
 tic()
 out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
-                              tune.mat)
+                              q.vec)
 toc()
 
 W.win.full <- out.bern.ELM$W.full[win.idx,]
@@ -529,7 +530,7 @@ plot(beta.0.save,type="l")
 plot(beta.save[1,], type = "l")
 plot(beta.save[2,], type = "l")
 
-matplot(t(beta.save)[,1:5],lty=1,type="l")
+matplot(beta.save,lty=1,type="l")
 
 # posterior summary
 beta.save.full <- t(rbind(beta.0.save, beta.save))
@@ -696,10 +697,10 @@ sim_points <- function(lam, full.coord, win.idx, survey.win, footprint.win, nonw
 
 sim.points <- sim_points(lam.full, ice.full.coord, win.idx, survey.win, footprint.win, 
                          nonwin = F)
-  
-# check how many seals on 0 ice
-seal.ice.idx <- cellFromXY(ice.rast, sim.points[[s.obs]])
-num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
+#   
+# # check how many seals on 0 ice
+# seal.ice.idx <- cellFromXY(ice.rast, sim.points[[s.obs]])
+# num.seal.0.ice <- sum(na.omit(values(ice.rast)[seal.ice.idx] == 0))
 
 # pdf("simulate_08132007_2.pdf")
 s.obs <- sim.points[[1]]
@@ -712,7 +713,7 @@ ggplot() +
   labs(color = "lambda") +
   geom_point(aes(x = s.obs[,1], y = s.obs[,2], color = lam.obs),
              size = 0.5) +
-  geom_sf(data = seal.locs, size = 0.5, color = "red") +
+  # geom_sf(data = seal.locs, size = 0.5, color = "red") +
   theme(axis.title = element_blank())
 # dev.off()
 

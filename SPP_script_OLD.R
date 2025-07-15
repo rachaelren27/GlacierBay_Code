@@ -20,12 +20,12 @@ library(latex2exp)
 library(geosphere)
 library(bayesreg)
 
-load(here("SPP_script.RData"))
+# load(here("SPP_script.RData"))
 set.seed(1234)
 
 # --- Read in NPS data ---------------------------------------------------------
-year <- "2010"
-date <- "20100614"
+year <- "2007"
+date <- "20070621"
 
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "seal_locations_final",
              "pup_locs")
@@ -59,7 +59,7 @@ footprint <- st_transform(footprint$geometry,
 footprint <- st_intersection(footprint, survey.poly)
 
 # plot seal pups
-pdf(paste0(date, "_pups.pdf"))
+pdf(paste0(date, "_pups.pdf"), width = 8)
 ggplot() + 
   geom_sf(data = survey.poly) + 
   geom_sf(data = footprint) + 
@@ -67,7 +67,11 @@ ggplot() +
   theme_bw() + 
   xlab("") + 
   ylab("") + 
-  xlim(c(-137.14, -137))
+  theme(axis.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  xlim(c(-137.14, -137.01)) + 
+  ylim(c(58.83, 58.905))
 dev.off()
 
 # prepare windows
@@ -422,13 +426,13 @@ toc()
 # 
 
 # ELM logistic non-Bayes
-q.vec <- rep(5, 100)
-gamma.vec <- c(0.1, 0.5, 1) # scale param
-tune.mat <- expand.grid(q = q.vec, gamma = gamma.vec)
+q.vec <- rep(5, 1000)
+# gamma.vec <- c(0.1, 0.5, 1) # scale param
+# tune.mat <- expand.grid(q = q.vec, gamma = gamma.vec)
 
-source(here("GlacierBay_Code", "spp.logit.ELM.R"))
+source(here("GlacierBay_Code", "spp.logit.ELM.2L.R"))
 tic()
-out.bern.ELM <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
+out.bern.ELM <- spp.logit.ELM.2L(X.obs.aug, X.full.aug, y.obs.binary, 
                               q.vec)
 toc()
 
@@ -652,9 +656,6 @@ lam.full <- exp(beta.post.means[1] + W.full%*%beta.post.means[-1])
 lam.full.df <- as.data.frame(cbind(ice.full.coord, lam.full))
 lam.full.rast <- rasterFromXYZ(lam.full.df)
 
-# # get cell with highest intensity
-# lam.max.s <- lam.full.df[which(lam.full.df[,3] == max(lam.full.df[,3])),][-3]
-
 # pdf("posterior_mean_heatmap.pdf")
 plot(lam.full.rast, col = viridis(100))
 # plot(survey.win, add = TRUE)
@@ -719,8 +720,8 @@ ggplot() +
 
 sim.ppp <- ppp(s.obs[,1], s.obs[,2], window = footprint.win)
 sim.L <- Linhom(sim.ppp)
-plot(x = obs.L$r, y = obs.L$iso, type = "l", col = "red")
-lines(x = sim.L$r, y = sim.L$iso)
+plot(x = obs.L$r, y = obs.L$iso - obs.L$r, type = "l", col = "red")
+lines(x = sim.L$r, y = sim.L$iso - sim.L$r)
 
 # --- L-function p-value -------------------------------------------------------
 ## compute L-function for observed data
@@ -751,3 +752,8 @@ for(i in 2:1000){
 lines(x = obs.L$r, y = obs.L$iso, col = "red")
 
 ## Bayesian p-value
+
+
+pdf("L_fun.pdf")
+L.fun.plot
+dev.off()

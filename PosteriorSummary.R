@@ -98,7 +98,7 @@ ggplot() +
 
 
 # --- Spatial Count Plot ------------------------------------------------------
-survey.poly.sfc <- st_sfc(st_polygon(list(survey.poly[[1]][[1]])), crs = "WGS84")
+survey.poly.sfc <- st_sfc(st_polygon(list(survey.poly[[1]][[1]][[1]])), crs = "WGS84")
 survey.vect <- vect(survey.poly)
 coarse.rast <- rast(ext(survey.vect), resolution = 0.00125)
 values(coarse.rast) <- rep(0, dim(coarse.rast)[1]*dim(coarse.rast)[2], crs = "WGS84")
@@ -123,12 +123,16 @@ count.means <- apply(count.mat, 2, mean)
 count.mat.mean <- cbind(s.full, z = count.means)
 count.rast.mean <- rasterFromXYZ(count.mat.mean)
 count.rast.mean <- terra::rast(count.rast.mean)
+
+crs(count.rast.mean) <- "+proj=longlat +datum=WGS84"
+crs(survey.vect) <- "+proj=longlat +datum=WGS84"
+
 count.rast.mean <- mask(count.rast.mean, survey.vect)
 plot(count.rast.mean)
 
 rast.df <- as.data.frame(count.rast.mean, xy = TRUE, na.rm = TRUE)
 
-pdf("post_count_20070621.pdf", compress = FALSE)
+pdf("post_count_20070621_test.pdf", compress = FALSE, width = 9)
 ggplot() + 
   geom_tile(data = as.data.frame(rast.df), aes(x = x, y = y, fill = z, col = z)) +
   scale_color_viridis_c(guide = "none") +
@@ -140,8 +144,18 @@ ggplot() +
     axis.ticks = element_line(),
   ) +
   theme_bw() + 
-  xlim(c(-137.14, -137)) + 
-  theme(axis.title = element_blank())
+  scale_x_continuous(breaks = seq(from = -137.14, to = -137.02, by = 0.02), 
+                     labels = c("137.14°W", "137.12°W", "137.10°W", "137.08°W", "137.06°W",
+                                "137.04°W", "137.02°W")) +
+  scale_y_continuous(breaks = seq(from = 58.83, to = 58.91, by = 0.02), 
+                     labels = c("58.83°N", "58.85°N", "58.87°N", "58.89°N", "58.91°N")) + 
+  coord_cartesian(xlim = c(-137.14, -137.01), ylim = c(58.83, 58.905)) + 
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 13),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
 dev.off()
   
 count.med <- apply(count.mat, 2, median)
@@ -155,9 +169,20 @@ count.rast.var <- terra::rast(count.rast.var)
 count.rast.var <- mask(count.rast.var, survey.vect.crop)
 
 count.sum <- apply(count.mat, 1, sum)
-pdf("N_post_pred.pdf")
-hist(count.sum, main = NULL, xlab = "Total Abundance", breaks = 30, prob = TRUE,
-     ylab = "Probability")
+pdf("post_pred.pdf")
+ggplot(as.data.frame(count.sum)) +
+  geom_bar(aes(x = count.sum, y = ..density..),
+           stat = "bin", position = "dodge", width = 1,
+           bins = 30, fill = "gray80", color = "black",
+           size = 0.3) + 
+  xlab("N") + 
+  ylab ("Density") + 
+  theme_classic() + 
+  theme(
+    axis.line = element_line(color = "black", size = 0.3),
+    axis.ticks = element_line(color = "black", size = 0.3),
+    axis.text = element_text(size = 16),
+    axis.title = element_text(size = 16))
 dev.off()
 
 # --- L-function Model Checking ------------------------------------------------

@@ -132,11 +132,11 @@ plot(count.rast.mean)
 
 rast.df <- as.data.frame(count.rast.mean, xy = TRUE, na.rm = TRUE)
 
-pdf("post_count_20070621_test.pdf", compress = FALSE, width = 9)
+pdf("post_abundance_20070621.pdf", compress = FALSE, width = 9)
 ggplot() + 
   geom_tile(data = as.data.frame(rast.df), aes(x = x, y = y, fill = z, col = z)) +
   scale_color_viridis_c(guide = "none") +
-  scale_fill_viridis_c(name = "count") +
+  scale_fill_viridis_c(name = "abundance") +
   # geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") + 
   theme(
     legend.position = "right",
@@ -169,7 +169,7 @@ count.rast.var <- terra::rast(count.rast.var)
 count.rast.var <- mask(count.rast.var, survey.vect.crop)
 
 count.sum <- apply(count.mat, 1, sum)
-pdf("post_pred.pdf")
+pdf("post_pred.pdf", height = 5, width = 9)
 ggplot(as.data.frame(count.sum)) +
   geom_bar(aes(x = count.sum, y = ..density..),
            stat = "bin", position = "dodge", width = 1,

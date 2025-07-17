@@ -34,12 +34,12 @@ seal.locs <- st_read(dsn = path, layer = paste0("JHI_", date, "_pup_locs"))
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "footprints")
 footprint <- st_read(dsn = path, layer =  paste0("JHI_", date, "_footprint"))
 
-survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds_jun_6")
+survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds")
 
 # convert CRS
 survey.poly <- st_transform(survey.poly$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
-survey.poly.mat <- survey.poly[[1]][[1]][[1]]
+survey.poly.mat <- survey.poly[[1]][[1]]
 survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
                                      y=rev(survey.poly.mat[,2])))
 
@@ -61,7 +61,7 @@ footprint <- st_intersection(footprint, survey.poly)
 # plot seal pups
 pdf(paste0(date, "_pups.pdf"), width = 8)
 ggplot() + 
-  geom_sf(data = survey.poly) + 
+  geom_sf(data = survey.poly, fill = "white") + 
   geom_sf(data = footprint) + 
   geom_point(aes(x = seal.mat[,1], y = seal.mat[,2]), size = 0.75, col = "red") + 
   theme_bw() + 
@@ -90,7 +90,7 @@ footprint.win <- do.call(union.owin, footprints)
 # read in bathymetry
 bath.rast <- raster(here("covariates", "bathymetry.tiff"))
 
-ice.rast <- raster(here("covariates", paste0("LK_ice_estimates_", date,
+ice.rast <- raster(here("covariates", paste0("cropped_LK_ice_estimates_", date,
                                              ".tiff")))
 ice.rast <- raster::crop(ice.rast, extent(survey.poly.mat))
 ice.rast <- raster::mask(ice.rast, as(survey.poly, 'Spatial'))

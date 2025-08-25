@@ -34,12 +34,12 @@ seal.locs <- st_read(dsn = path, layer = paste0("JHI_", date, "_pup_locs"))
 path <- here("NPS_data", paste0("HARBORSEAL_", year), "footprints")
 footprint <- st_read(dsn = path, layer =  paste0("JHI_", date, "_footprint"))
 
-survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds")
+survey.poly <- st_read(dsn = here(), layer = "cropped_survey_poly_20070618_bounds_jun_6")
 
 # convert CRS
 survey.poly <- st_transform(survey.poly$geometry, 
                             CRS("+proj=longlat +datum=WGS84"))
-survey.poly.mat <- survey.poly[[1]][[1]]
+survey.poly.mat <- survey.poly[[1]][[1]][[1]]
 survey.win <- owin(poly = data.frame(x=rev(survey.poly.mat[,1]),
                                      y=rev(survey.poly.mat[,2])))
 
@@ -547,6 +547,57 @@ beta.post.means <- apply(beta.save.full,2,mean)
 beta.post.sd <- apply(beta.save.full,2,sd) 
 apply(beta.save.full,2,quantile,c(0.025,.975))
 
+# --- GLM-E --------------------------------------------------------------------
+## stage 1
+q.vec <- rep(5, each = 100)
+
+source(here("GlacierBay_Code", "spp.logit.ELM.R"))
+tic()
+out.GLME1 <- spp.logit.ELM(X.obs.aug, X.full.aug, y.obs.binary, 
+                                 q.vec)
+toc()
+
+W.win.full <- out.GLME1$W.full[win.idx,]
+W.obs <- out.GLME1$W.obs
+beta.glm <- out.GLME1$beta.glm
+vcov.glm <- out.GLME1$vcov.glm
+beta.save <- mvnfast::rmvn(n.mcmc, beta.glm, vcov.glm)
+
+## stage 2
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+tic()
+lam.int.save <- foreach(k = 1:nrow(beta.save), .combine = c) %dopar% {
+  lam.int <- sum(exp(log(ds) + W.win.full%*%beta.save[k,]))
+  return(lam.int)
+}
+
+W.beta.sum.save <- foreach(k = 1:nrow(beta.save)) %dopar% {
+  W.beta.sum <- sum(W.obs%*%beta.save[k,])
+  return(W.beta.sum)
+}
+toc() # 42 sec
+
+stopCluster(cl) 
+
+# prepare for third stage
+out.GLME2 <- list(beta.save = t(beta.save), n.mcmc = n.mcmc, n = n,
+                  ds = ds, X.full = W.win.full, lam.int.save = lam.int.save,
+                  X.beta.sum.save = W.beta.sum.save)
+
+## stage 3
+source(here("GlacierBay_Code", "spp.stg3.mcmc.R"))
+tic()
+out.GLME3 <- spp.stg3.mcmc(out.GLME2)
+toc() # ~ 1 sec
+
+beta.save <- out.GLME3$beta.save
+beta.0.save <- out.GLME3$beta.0.save
+
+# trace plots
+matplot(t(beta.save),lty=1,type="l")
+
 # --- Compare Marginal Posteriors ----------------------------------------------
 layout(matrix(1:4,1,4))
 hist(out.comp.full$beta.0.save[-(1:n.burn)], prob=TRUE, breaks=60,main="", 
@@ -644,11 +695,11 @@ quantile(N.save, c(0.025, 0.975))
 
 
 # --- Posterior Intensity Function ---------------------------------------------
-out.comp.esn <- out.cond.pg3
-beta.0.save <- out.comp.esn$beta.0.save
-beta.save <- out.comp.esn$beta.save
+out <- out.GLME3
+beta.0.save <- out$beta.0.save
+beta.save <- out$beta.save
 beta.save.full <- cbind(beta.0.save, t(beta.save))
-W.full <- out.bern.ELM$W.full[1:nrow(X.full),]
+W.full <- out.GLME1$W.full[1:nrow(X.full),]
 
 # posterior mean heat map
 beta.post.means <- apply(beta.save.full,2,mean)

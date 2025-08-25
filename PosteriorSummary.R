@@ -13,7 +13,7 @@ calc_lambda <- function(X, beta){
   return(exp(beta.0 + X%*%beta))
 }
 
-lam.post.mean <- calc_lambda(X.full, beta.post.means)
+lam.post.mean <- calc_lambda(W.full, beta.post.means)
 
 # for plotting
 s.full <- xyFromCell(bath.rast.survey, which(!is.na(values(bath.rast.survey))))
@@ -46,8 +46,7 @@ sim_points_full <- function(lam, full.coord, survey.win){
 }
 
 
-post.mean.sim <- sim_points(lam.post.mean, length(seal.locs), survey.win,
-                            footprint.win, nonwin = FALSE)
+post.mean.sim <- sim_points_full(lam.post.mean, ice.full.coord, survey.win)
 post.mean.points <- post.mean.sim[[1]]
 post.mean.lam <- post.mean.sim[[2]]
 
@@ -61,7 +60,7 @@ for(k in 1:n.mcmc){
   if(k%%10000 == 0){cat(k," ")}
   beta.0.tmp <- beta.post[1,k]
   beta.tmp <- beta.post[-1,k]
-  lam.nonwin.int <- sum(exp(log(ds)+beta.0.tmp+X.nonwin.full%*%beta.tmp)) # numerical quadrature to approximate integral
+  lam.nonwin.int <- sum(exp(log(ds)+beta.0.tmp+W.nowin.full%*%beta.tmp)) # numerical quadrature to approximate integral
   N.save[k] <- n + rpois(1,lam.nonwin.int)
 };cat("\n")
 
@@ -170,10 +169,10 @@ count.rast.var <- mask(count.rast.var, survey.vect.crop)
 
 count.sum <- apply(count.mat, 1, sum)
 pdf("post_pred.pdf", height = 5, width = 9)
-ggplot(as.data.frame(count.sum)) +
-  geom_bar(aes(x = count.sum, y = ..density..),
+ggplot(as.data.frame(N.save)) +
+  geom_bar(aes(x = N.save, y = ..density..),
            stat = "bin", position = "dodge", width = 1,
-           bins = 30, fill = "gray80", color = "black",
+           bins = 28, fill = "gray80", color = "black",
            size = 0.3) + 
   xlab("N") + 
   ylab ("Density") + 
